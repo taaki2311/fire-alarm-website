@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>Fire Alarm: WMATA</title>
+</head>
+
+<body>
+    <h1>Fire Alarm: WMATA</h1>
+    <p>
+        Select the stations that you want to receive notifications about.<br>
+        Not selecting stations will remove them from your profile.
+    </p>
+    <form id="stationsFilter"></form>
+    <form id="stationList"></form>
+    <form id="emailForm">
+        <input type="email" name="email" placeholder="Email" required>
+        <button type="submit">Request Code</button>
+    </form>
+    <form id="subscriptionForm" hidden>
+        <input type="number" name="code" min="0" max="65535" minlength="6" maxlength="6" size="6" required>
+        <button type="submit">Verify</button>
+    </form>
+    <p id="result"></p>
+    <script src="/index.js"></script>
+    <noscript>Please Enable Javascript Support</noscript>
+</body>
