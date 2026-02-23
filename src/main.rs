@@ -8,7 +8,7 @@ use sea_orm::{
     QueryFilter,
 };
 use serde::Deserialize;
-use tokio::{fs, sync::Mutex, time};
+use tokio::{sync::Mutex, time};
 
 mod database;
 use crate::database::{prelude::*, station, user, user_station};
@@ -47,19 +47,18 @@ async fn main() {
     )));
 
     let router = axum::Router::new()
-        .route("/", routing::get(index))
-        .route("/index.html", routing::get(index))
-        .route("/index.js", routing::get(script))
         .route("/get_lines", routing::get(get_lines))
         .with_state(state.clone())
         .route("/get_stations", routing::get(get_stations))
         .with_state(state.clone())
         .route("/submit_email", routing::post(submit_email))
         .with_state(state.clone())
-        .route("/update_subscription", routing::delete(unsubscribe))
+        .route(
+            "/update_subscription",
+            routing::delete(unsubscribe).put(update_subscription),
+        )
         .with_state(state.clone())
-        .route("/update_subscription", routing::put(update_subscription))
-        .with_state(state);
+        .fallback_service(tower_http::services::ServeDir::new("assets"));
 
     let addr = net::SocketAddr::new(net::IpAddr::V4(net::Ipv4Addr::new(127, 0, 0, 1)), 3000);
     let listener = tokio::net::TcpListener::bind(addr)
@@ -157,20 +156,6 @@ impl response::IntoResponse for Error {
 }
 
 type Result<T> = result::Result<T, Error>;
-
-async fn index() -> Result<response::Html<String>> {
-    #[cfg(feature = "log")]
-    log::debug!("Index page loaded");
-
-    Ok(response::Html(fs::read_to_string("index.html").await?))
-}
-
-async fn script() -> Result<String> {
-    #[cfg(feature = "log")]
-    log::debug!("Script file loaded");
-
-    Ok(fs::read_to_string("index.js").await?)
-}
 
 /// Randomly generated to verify the user has access to the email
 type CodeType = u16;
