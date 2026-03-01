@@ -8,7 +8,10 @@ use sea_orm::{
     QueryFilter,
 };
 use serde::Deserialize;
-use tokio::{sync::Mutex, time};
+use tokio::{
+    sync::{Mutex, oneshot},
+    time,
+};
 
 mod database;
 use crate::database::{prelude::*, station, user, user_station};
@@ -22,13 +25,14 @@ async fn main() {
 
     let mailbox = message::Mailbox::new(args.name.clone(), args.address.clone());
     let username = args.name.unwrap_or_else(|| args.address.to_string());
-    let transport = lettre::AsyncSmtpTransport::<lettre::Tokio1Executor>::relay(&args.relay)
-        .expect("Failed to connect to SMTP server")
-        .credentials(lettre::transport::smtp::authentication::Credentials::new(
-            username,
-            args.password,
-        ))
-        .build();
+    let transport =
+        lettre::AsyncSmtpTransport::<lettre::Tokio1Executor>::starttls_relay(&args.relay)
+            .expect("Failed to connect to SMTP server")
+            .credentials(lettre::transport::smtp::authentication::Credentials::new(
+                username,
+                args.password,
+            ))
+            .build();
 
     let db = sea_orm::Database::connect(args.database)
         .await
@@ -59,7 +63,26 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .expect("Failed to bind to socket");
-    axum::serve(listener, router).await.expect("Server Crashed");
+    axum::serve(listener, router)
+        .with_graceful_shutdown(shutdown_signal(state))
+        .await
+        .expect("Server Crashed");
+}
+
+async fn shutdown_signal<T: AsyncTransport, C: ConnectionTrait>(state: Arc<Mutex<AppState<T, C>>>) {
+    use tokio::io::AsyncReadExt;
+
+    println!("Press 'Enter' to shutdown server");
+    tokio::io::stdin().read_u8().await.unwrap_or_default();
+    println!("Received Shutdown Request");
+
+    if let Some(shutdown_signal) = { state.lock().await.otp_db.shutdown() } {
+        // Need to put 'state.lock()' into its own block so that the lock is released at the end
+        shutdown_signal
+            .await
+            .inspect_err(|err| eprintln!("Shutdown Signal Error: {err}"))
+            .unwrap_or_default()
+    }
 }
 
 /// Subscribe to WMATA Fire-Alarm
@@ -119,6 +142,9 @@ enum Error {
 
     #[error("Code does not match: {0}")]
     CodeDoesNotMatch(CodeType),
+
+    #[error("Server is shutting down and cannot accept new submissions")]
+    ServerShutdown,
 }
 
 /// Allows for [Result] to work with Axum
@@ -134,6 +160,7 @@ impl response::IntoResponse for Error {
             Error::SendError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::EmailNotFound(_) => StatusCode::GONE,
             Error::CodeDoesNotMatch(_) => StatusCode::UNAUTHORIZED,
+            Error::ServerShutdown => StatusCode::SERVICE_UNAVAILABLE,
         };
         let message = format!("{self:?}");
         eprintln!("{message}");
@@ -147,13 +174,13 @@ type Result<T> = result::Result<T, Error>;
 type CodeType = u16;
 
 /// Timer that determines if a verification code is valid
-struct TempData {
+struct OneTimePasscode {
     handle: tokio::task::AbortHandle,
     code: CodeType,
 }
 
-impl TempData {
-    /// Creates a background timer than when expires will remove the verification code from the temporary database, thus invalidating it
+impl OneTimePasscode {
+    /// Creates a background timer than when expires will remove the verification code from the OTP database, thus invalidating it
     fn new(
         email: Address,
         state: Arc<
@@ -171,7 +198,13 @@ impl TempData {
         Self {
             handle: tokio::spawn(async move {
                 time::sleep(duration).await;
-                state.lock().await.temp_db.remove(&email);
+                state
+                    .lock()
+                    .await
+                    .otp_db
+                    .remove(&email)
+                    .inspect_err(|err| eprintln!("Failed to remove timed out OTP: {err}"))
+                    .unwrap_or_default();
             })
             .abort_handle(),
             code: code,
@@ -185,29 +218,76 @@ impl TempData {
     }
 }
 
-/// Used to store the [TempData] for each email address that has not been validated
-type TempDb = HashMap<Address, TempData>;
+struct OtpDb {
+    otp_map: HashMap<Address, OneTimePasscode>,
+    duration: time::Duration,
+    shutdown_signal: Option<oneshot::Sender<()>>,
+}
+
+impl OtpDb {
+    fn new(duration: time::Duration) -> Self {
+        return OtpDb {
+            otp_map: HashMap::new(),
+            duration: duration,
+            shutdown_signal: None,
+        };
+    }
+
+    fn insert<T: AsyncTransport + Send + 'static, C: ConnectionTrait + Send + 'static>(
+        &mut self,
+        address: Address,
+        state: Arc<Mutex<AppState<T, C>>>,
+        code: u16,
+    ) -> Result<Option<OneTimePasscode>> {
+        if self.shutdown_signal.is_none() {
+            Ok(self.otp_map.insert(
+                address.clone(),
+                OneTimePasscode::new(address, state, code, self.duration),
+            ))
+        } else {
+            Err(Error::ServerShutdown)
+        }
+    }
+
+    fn remove(&mut self, address: &Address) -> Result<Option<OneTimePasscode>> {
+        let old_entry = self.otp_map.remove(address);
+        if self.otp_map.is_empty()
+            && let Some(tx) = self.shutdown_signal.take()
+        {
+            tx.send(()).map_err(|_| Error::ServerShutdown)?;
+        }
+        Ok(old_entry)
+    }
+
+    fn shutdown(&mut self) -> Option<oneshot::Receiver<()>> {
+        if self.otp_map.is_empty() {
+            None
+        } else {
+            let (tx, rx) = oneshot::channel();
+            self.shutdown_signal = Some(tx);
+            Some(rx)
+        }
+    }
+}
 
 /// Stores any global state needed by the application
 struct AppState<T: AsyncTransport, C: ConnectionTrait> {
-    temp_db: TempDb,
+    otp_db: OtpDb,
     message_builder: message::MessageBuilder,
     transport: T,
     db: C,
-    duration: time::Duration,
 }
 
 impl<T: AsyncTransport, C: ConnectionTrait> AppState<T, C> {
     fn new(mailbox: message::Mailbox, transport: T, db: C, duration: time::Duration) -> Self {
         Self {
-            temp_db: HashMap::new(),
+            otp_db: OtpDb::new(duration),
             message_builder: lettre::Message::builder()
                 .from(mailbox)
                 .subject("WMATA Fire-Alarm Verification Code")
                 .header(message::header::ContentType::TEXT_PLAIN),
             transport: transport,
             db: db,
-            duration,
         }
     }
 }
@@ -269,25 +349,20 @@ where
     let future = state.lock();
     let address: Address = email.parse()?;
     let code: CodeType = rand::random();
-
-    #[cfg(feature = "log")]
-    log::info!("{email}: {code}");
-    #[cfg(not(feature = "log"))]
+    let mut app_state = future.await;
+    if let Some(old_entry) = app_state
+        .otp_db
+        .insert(address.clone(), state.clone(), code)?
+    {
+        old_entry.handle.abort();
+    }
     println!("{email}: {code:0>6}");
 
-    let mut app_state = future.await;
-    let duration = app_state.duration;
     let message = app_state
         .message_builder
         .clone()
-        .to(address.clone().into())
+        .to(address.into())
         .body(format!("{code:0>6}"))?; // Pad with zero to 6 digits
-    if let Some(old_entry) = app_state.temp_db.insert(
-        address.clone(),
-        TempData::new(address, state.clone(), code, duration),
-    ) {
-        old_entry.handle.abort();
-    }
 
     match app_state.transport.send(message).await {
         Ok(_) => Ok(()),
@@ -303,10 +378,10 @@ struct UserAuth {
 }
 
 impl UserAuth {
-    /// Checks the code against the temporary database
-    async fn auth(&self, temp_db: &mut TempDb) -> Result<()> {
-        if match temp_db.remove(&self.email) {
-            Some(temp_data) => temp_data.end(self.code),
+    /// Checks the code against the OTP database
+    async fn auth(&self, otp_db: &mut OtpDb) -> Result<()> {
+        if match otp_db.remove(&self.email)? {
+            Some(otp_data) => otp_data.end(self.code),
             None => return Err(Error::EmailNotFound(self.email.clone())),
         } {
             Ok(())
@@ -1555,5 +1630,25 @@ mod test {
                 .await
                 .unwrap();
         assert_eq!(result, expected);
+    }
+
+    #[tokio::test]
+    async fn transport_test_connection() {
+        use std::env;
+
+        assert!(
+            lettre::AsyncSmtpTransport::<lettre::Tokio1Executor>::starttls_relay(
+                &env::var("RELAY").unwrap(),
+            )
+            .unwrap()
+            .credentials(lettre::transport::smtp::authentication::Credentials::new(
+                env::var("NAME").unwrap_or_else(|_| env::var("ADDRESS").unwrap()),
+                env::var("PASSWORD").unwrap(),
+            ))
+            .build::<lettre::Tokio1Executor>()
+            .test_connection()
+            .await
+            .unwrap()
+        )
     }
 }
