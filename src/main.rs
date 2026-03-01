@@ -20,13 +20,8 @@ async fn main() {
 
     let args = Args::parse();
 
-    #[cfg(feature = "log")]
-    env_logger::Builder::new()
-        .filter_level(args.verbosity.log_level_filter())
-        .init();
-
-    let mailbox = message::Mailbox::new(args.username.clone(), args.address.clone());
-    let username = args.username.unwrap_or_else(|| args.address.to_string());
+    let mailbox = message::Mailbox::new(args.name.clone(), args.address.clone());
+    let username = args.name.unwrap_or_else(|| args.address.to_string());
     let transport = lettre::AsyncSmtpTransport::<lettre::Tokio1Executor>::relay(&args.relay)
         .expect("Failed to connect to SMTP server")
         .credentials(lettre::transport::smtp::authentication::Credentials::new(
@@ -79,7 +74,7 @@ struct Args {
     /// Username for the SMTP relay server, will default to address
     #[arg(short, long)]
     #[cfg_attr(feature = "env", arg(env))]
-    pub username: Option<String>,
+    pub name: Option<String>,
 
     /// Password for the SMTP relay server
     #[arg(short, long)]
@@ -100,10 +95,6 @@ struct Args {
     #[arg(short, long, default_value_t = 600)]
     #[cfg_attr(feature = "env", arg(env))]
     pub timeout: u16,
-
-    #[cfg(feature = "log")]
-    #[command(flatten)]
-    verbosity: clap_verbosity_flag::Verbosity,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -141,16 +132,11 @@ impl response::IntoResponse for Error {
             Error::AddressError(_) => StatusCode::BAD_REQUEST,
             Error::EmailError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::SendError(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            Error::EmailNotFound(_) => StatusCode::REQUEST_TIMEOUT,
+            Error::EmailNotFound(_) => StatusCode::GONE,
             Error::CodeDoesNotMatch(_) => StatusCode::UNAUTHORIZED,
         };
         let message = format!("{self:?}");
-
-        #[cfg(feature = "log")]
-        log::error!("{message}");
-        #[cfg(not(feature = "log"))]
         eprintln!("{message}");
-
         (status_code, message).into_response()
     }
 }
@@ -230,9 +216,6 @@ impl<T: AsyncTransport, C: ConnectionTrait> AppState<T, C> {
 async fn get_lines<T: AsyncTransport, C: ConnectionTrait>(
     State(state): State<Arc<Mutex<AppState<T, C>>>>,
 ) -> Result<Json<Vec<String>>> {
-    #[cfg(feature = "log")]
-    log::debug!("Get rail lines");
-
     Ok(Json(
         RailLine::find()
             .all(&state.lock().await.db)
@@ -254,9 +237,6 @@ struct StationInfo {
 async fn get_stations<T: AsyncTransport, C: ConnectionTrait>(
     State(state): State<Arc<Mutex<AppState<T, C>>>>,
 ) -> Result<Json<Vec<StationInfo>>> {
-    #[cfg(feature = "log")]
-    log::debug!("Get stations");
-
     let db = &state.lock().await.db;
     let stations = Station::find().all(db).await?;
     let mut station_infos = Vec::with_capacity(stations.len());
@@ -362,26 +342,13 @@ async fn unsubscribe(
     State(state): State<Arc<Mutex<AppState<impl AsyncTransport, impl ConnectionTrait>>>>,
     Json(user_auth): Json<UserAuth>,
 ) -> Result<()> {
-    #[cfg(feature = "log")]
-    log::info!("Delete request from {}", user_auth.email);
-
     let mut app_state = state.lock().await;
-    user_auth.auth(&mut app_state.temp_db).await?;
-    #[cfg(feature = "log")]
-    log::debug!("authenticated");
+    user_auth.auth(&mut app_state.otp_db).await?;
 
     Ok(
         match get_user_by_email(&app_state.db, &user_auth.email.to_string()).await? {
-            Some(user) => {
-                #[cfg(feature = "log")]
-                log::debug!("found");
-                delete_user(user, &app_state.db).await?
-            }
-            None => {
-                #[cfg(feature = "log")]
-                log::debug!("not found");
-                ()
-            }
+            Some(user) => delete_user(user, &app_state.db).await?,
+            None => {}
         },
     )
 }
@@ -429,7 +396,7 @@ async fn delete_user_stations_not_in_list(
             .any(|station| user_station.station_id == station.id)
     });
 
-    // Unfortunately I cannot choice specific records to delete like I can with INSERT, so I am doing them one at a time.
+    // Unfortunately I cannot choose specific records to delete like I can with INSERT, so I am doing them one at a time.
     for user_station in user_stations {
         user_station.delete(db).await?;
     }
@@ -472,21 +439,13 @@ async fn update_user_stations(
     email: String,
 ) -> Result<()> {
     let mut stations = get_stations_from_names(db, names).await?;
-    #[cfg(feature = "log")]
-    log::trace!("Got list of stations from selected station names");
 
     let user = match get_user_by_email(db, &email).await? {
         Some(user) => {
-            #[cfg(feature = "log")]
-            log::debug!("{email} already in database");
             delete_not_selected_user_stations(&user, db, &mut stations).await?;
-            #[cfg(feature = "log")]
-            log::debug!("Deleted stations previous linked to {email} but no longer selected");
             user
         }
         None => {
-            #[cfg(feature = "log")]
-            log::debug!("{email} not found in database, creating new user");
             user::ActiveModel {
                 email: ActiveValue::Set(email),
                 ..Default::default()
@@ -507,8 +466,6 @@ async fn update_user_stations(
     .on_empty_do_nothing()
     .exec_without_returning(db)
     .await?;
-    #[cfg(feature = "log")]
-    log::debug!("Inserted new links between user and selected stations");
     Ok(())
 }
 
@@ -517,15 +474,8 @@ async fn update_subscription<T: AsyncTransport, C: ConnectionTrait>(
     State(state): State<Arc<Mutex<AppState<T, C>>>>,
     Json(subscription): Json<Subscription>,
 ) -> Result<()> {
-    #[cfg(feature = "log")]
-    log::debug!(
-        "Update subscriptions request from {}",
-        subscription.user_auth.email
-    );
     let mut app_state = state.lock().await;
-    subscription.user_auth.auth(&mut app_state.temp_db).await?; // Will error out here if auth fails
-    #[cfg(feature = "log")]
-    log::trace!("authenticated");
+    subscription.user_auth.auth(&mut app_state.otp_db).await?; // Will error out here if auth fails
 
     update_user_stations(
         &app_state.db,
