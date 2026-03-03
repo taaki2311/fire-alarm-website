@@ -69,6 +69,7 @@ async fn main() {
         .expect("Server Crashed");
 }
 
+/// Waits on receiving a signal from Standard-In to start shutting down the server.
 async fn shutdown_signal<T: AsyncTransport, C: ConnectionTrait>(state: Arc<Mutex<AppState<T, C>>>) {
     use tokio::io::AsyncReadExt;
 
@@ -85,7 +86,7 @@ async fn shutdown_signal<T: AsyncTransport, C: ConnectionTrait>(state: Arc<Mutex
     }
 }
 
-/// Subscribe to WMATA Fire-Alarm
+/// Subscribe to Fire-Alarm
 #[derive(Parser)]
 #[command(version)]
 struct Args {
@@ -120,6 +121,7 @@ struct Args {
     pub timeout: u16,
 }
 
+/// All possible errors that the website could encounter
 #[derive(Debug, thiserror::Error)]
 enum Error {
     #[error("IO error: {0}")]
@@ -147,8 +149,8 @@ enum Error {
     ServerShutdown,
 }
 
-/// Allows for [Result] to work with Axum
 impl response::IntoResponse for Error {
+    /// Allows for [`Result`] to work with Axum
     fn into_response(self) -> response::Response {
         use axum::http::StatusCode;
 
@@ -173,7 +175,7 @@ type Result<T> = result::Result<T, Error>;
 /// Randomly generated to verify the user has access to the email
 type CodeType = u16;
 
-/// Timer that determines if a verification code is valid
+/// A one-time passcode needs to store both the code a handle to a timer during which the code is valid
 struct OneTimePasscode {
     handle: tokio::task::AbortHandle,
     code: CodeType,
@@ -218,6 +220,7 @@ impl OneTimePasscode {
     }
 }
 
+/// Database for managing the one-time passcodes
 struct OtpDb {
     otp_map: HashMap<Address, OneTimePasscode>,
     duration: time::Duration,
@@ -225,6 +228,7 @@ struct OtpDb {
 }
 
 impl OtpDb {
+    /// The duration gets stored here to set the timer for every new OTP 
     fn new(duration: time::Duration) -> Self {
         return OtpDb {
             otp_map: HashMap::new(),
@@ -233,6 +237,7 @@ impl OtpDb {
         };
     }
 
+    /// Will only insert if a shutdown request has not been received, will return the old code if it exists
     fn insert<T: AsyncTransport + Send + 'static, C: ConnectionTrait + Send + 'static>(
         &mut self,
         address: Address,
@@ -249,6 +254,7 @@ impl OtpDb {
         }
     }
 
+    /// If the shutdown request was received and the given address was the last one in the database, it will send the shutdown command
     fn remove(&mut self, address: &Address) -> Result<Option<OneTimePasscode>> {
         let old_entry = self.otp_map.remove(address);
         if self.otp_map.is_empty()
@@ -259,6 +265,7 @@ impl OtpDb {
         Ok(old_entry)
     }
 
+    /// Requests a shutdown, wait on the returned oneshot receiver if needed for the shutdown signal
     fn shutdown(&mut self) -> Option<oneshot::Receiver<()>> {
         if self.otp_map.is_empty() {
             None
@@ -279,12 +286,13 @@ struct AppState<T: AsyncTransport, C: ConnectionTrait> {
 }
 
 impl<T: AsyncTransport, C: ConnectionTrait> AppState<T, C> {
+    /// Pre-build the message as much as it can and passes the timeout duration to the internal [`OtpDb`]
     fn new(mailbox: message::Mailbox, transport: T, db: C, duration: time::Duration) -> Self {
         Self {
             otp_db: OtpDb::new(duration),
             message_builder: lettre::Message::builder()
                 .from(mailbox)
-                .subject("WMATA Fire-Alarm Verification Code")
+                .subject("Fire-Alarm Verification Code")
                 .header(message::header::ContentType::TEXT_PLAIN),
             transport: transport,
             db: db,
@@ -544,7 +552,7 @@ async fn update_user_stations(
     Ok(())
 }
 
-/// Wrapper for [update_user_stations] that includes authentication
+/// Wrapper for [`update_user_stations`] that includes authentication
 async fn update_subscription<T: AsyncTransport, C: ConnectionTrait>(
     State(state): State<Arc<Mutex<AppState<T, C>>>>,
     Json(subscription): Json<Subscription>,
