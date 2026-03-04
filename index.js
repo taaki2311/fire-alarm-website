@@ -25,7 +25,7 @@ class StationInfo {
      * @returns {string} HTML formatting for a checkbox
      */
     toCheckbox() {
-        return `<div id="${this.name}"><label><input type="checkbox" name="${this.name}">${this.name}</label></div>`;
+        return `<p id="${this.name}"><input type="checkbox" id="${this.name}_cb"><label for="${this.name}_cb">${this.name}</label></p>`;
     }
 }
 
@@ -43,9 +43,9 @@ let filter; // eslint-disable-line no-unused-vars
 async function getLines() {
     try {
         const lines = await fetch('/get_lines').then((response) => response.json());
-        document.getElementById('stationsFilter').innerHTML = lines.map((line) => `<label>
-                    <input type="checkbox" name="${line}" onchange="updateStationList(filter, stations, this.name, this.checked)">
-                    ${line}</label>`).join('');
+        document.getElementById('stationsFilter').innerHTML = lines.map((line) => `
+            <input type="checkbox" id="${line}" onchange="updateStationList(filter, stations, this.id, this.checked)">
+            <label for="${line}">${line}</label>`).join('');
         filter = new Map(lines.map((line) => [line, false]));
     } catch (error) {
         displayResult(`Error when getting lines: ${error}`);

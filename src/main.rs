@@ -1,6 +1,11 @@
 use std::{collections::HashMap, result, sync::Arc};
 
-use axum::{Json, extract::State, response};
+use axum::{
+    Json,
+    extract::State,
+    response::{Html, IntoResponse, Response},
+};
+use axum_extra::response::{Css, JavaScript};
 use clap::Parser;
 use lettre::{Address, AsyncTransport, message};
 use sea_orm::{
@@ -9,6 +14,7 @@ use sea_orm::{
 };
 use serde::Deserialize;
 use tokio::{
+    fs,
     sync::{Mutex, oneshot},
     time,
 };
@@ -46,6 +52,10 @@ async fn main() {
     )));
 
     let router = axum::Router::new()
+        .route("/", routing::get(index))
+        .route("/index.html", routing::get(index))
+        .route("/index.js", routing::get(script))
+        .route("/style.css", routing::get(style))
         .route("/get_lines", routing::get(get_lines))
         .with_state(state.clone())
         .route("/get_stations", routing::get(get_stations))
@@ -56,8 +66,7 @@ async fn main() {
             "/update_subscription",
             routing::delete(unsubscribe).put(update_subscription),
         )
-        .with_state(state.clone())
-        .fallback_service(tower_http::services::ServeDir::new("assets"));
+        .with_state(state.clone());
 
     let addr = net::SocketAddr::new(net::IpAddr::V4(net::Ipv4Addr::new(127, 0, 0, 1)), 3000);
     let listener = tokio::net::TcpListener::bind(addr)
@@ -67,6 +76,21 @@ async fn main() {
         .with_graceful_shutdown(shutdown_signal(state))
         .await
         .expect("Server Crashed");
+}
+
+/// Serve `index.html` from the file system
+async fn index() -> Result<Html<String>> {
+    Ok(Html(fs::read_to_string("index.html").await?))
+}
+
+/// Serve `index.js` from the file system
+async fn script() -> Result<JavaScript<String>> {
+    Ok(JavaScript(fs::read_to_string("index.js").await?))
+}
+
+/// Serve `style.css` from the file system
+async fn style() -> Result<Css<String>> {
+    Ok(Css(fs::read_to_string("style.css").await?))
 }
 
 /// Waits on receiving a signal from Standard-In to start shutting down the server.
@@ -149,9 +173,9 @@ enum Error {
     ServerShutdown,
 }
 
-impl response::IntoResponse for Error {
+impl IntoResponse for Error {
     /// Allows for [`Result`] to work with Axum
-    fn into_response(self) -> response::Response {
+    fn into_response(self) -> Response {
         use axum::http::StatusCode;
 
         let status_code = match self {
@@ -228,7 +252,7 @@ struct OtpDb {
 }
 
 impl OtpDb {
-    /// The duration gets stored here to set the timer for every new OTP 
+    /// The duration gets stored here to set the timer for every new OTP
     fn new(duration: time::Duration) -> Self {
         return OtpDb {
             otp_map: HashMap::new(),

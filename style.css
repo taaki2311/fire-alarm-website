@@ -1,0 +1,26 @@
+body {
+    background-color: gainsboro;
+    font-family: sans-serif;
+}
+
+input[type=checkbox] {
+    position: absolute;
+    visibility: hidden;
+}
+
+input[type=checkbox] + label {
+    border-radius: .5em; 
+    border-style: solid;
+    border-width: .2em;
+    padding: .25em;
+}
+
+input[type=checkbox]:hover + label {
+    background-color: gray;
+    opacity: .5;
+}
+
+input[type=checkbox]:checked + label {
+    background-color: gray;
+    opacity: unset;
+}
