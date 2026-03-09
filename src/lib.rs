@@ -17,7 +17,7 @@ use tokio::{
 };
 
 mod database;
-use crate::database::{prelude::*, station, user, user_station};
+use crate::database::{prelude::*, stations, users, user_stations};
 
 /// All possible errors that the website could encounter
 #[derive(Debug, thiserror::Error)]
@@ -207,7 +207,7 @@ pub async fn get_lines<T: AsyncTransport, C: ConnectionTrait>(
     State(state): State<Arc<Mutex<AppState<T, C>>>>,
 ) -> Result<Json<Vec<String>>> {
     Ok(Json(
-        RailLine::find()
+        RailLines::find()
             .all(&state.lock().await.db)
             .await?
             .into_iter()
@@ -228,11 +228,11 @@ pub async fn get_stations<T: AsyncTransport, C: ConnectionTrait>(
     State(state): State<Arc<Mutex<AppState<T, C>>>>,
 ) -> Result<Json<Vec<StationInfo>>> {
     let db = &state.lock().await.db;
-    let stations = Station::find().all(db).await?;
+    let stations = Stations::find().all(db).await?;
     let mut station_infos = Vec::with_capacity(stations.len());
     for station in stations {
         let lines = station
-            .find_related(RailLine)
+            .find_related(RailLines)
             .all(db)
             .await?
             .into_iter()
@@ -305,17 +305,17 @@ impl UserAuth {
 async fn get_user_by_email(
     db: &impl ConnectionTrait,
     email: &String,
-) -> Result<Option<user::Model>> {
-    Ok(User::find()
-        .filter(user::Column::Email.eq(email))
+) -> Result<Option<users::Model>> {
+    Ok(Users::find()
+        .filter(users::Column::Email.eq(email))
         .one(db)
         .await?)
 }
 
 /// Completely removes the user from the service
-async fn delete_user(user: user::Model, db: &impl ConnectionTrait) -> Result<()> {
-    UserStation::delete_many()
-        .filter(user_station::Column::UserId.eq(user.id))
+async fn delete_user(user: users::Model, db: &impl ConnectionTrait) -> Result<()> {
+    UserStations::delete_many()
+        .filter(user_stations::Column::UserId.eq(user.id))
         .exec(db)
         .await?;
     user.delete(db).await?;
@@ -351,8 +351,8 @@ pub struct Subscription {
 async fn get_stations_from_names(
     db: &impl ConnectionTrait,
     names: &[String],
-) -> Result<Vec<station::Model>> {
-    Ok(Station::find()
+) -> Result<Vec<stations::Model>> {
+    Ok(Stations::find()
         .all(db)
         .await?
         .into_iter()
@@ -362,19 +362,19 @@ async fn get_stations_from_names(
 
 /// Gets the stations that the user is already subscribed to
 async fn get_already_selected_stations(
-    user: &user::Model,
+    user: &users::Model,
     db: &impl ConnectionTrait,
-) -> Result<Vec<station::Model>> {
-    Ok(user.find_related(Station).all(db).await?)
+) -> Result<Vec<stations::Model>> {
+    Ok(user.find_related(Stations).all(db).await?)
 }
 
 /// Deletes from the database any links to stations not in the list
 async fn delete_user_stations_not_in_list(
-    user: &user::Model,
+    user: &users::Model,
     db: &impl ConnectionTrait,
-    stations: &[station::Model],
+    stations: &[stations::Model],
 ) -> Result<()> {
-    let mut user_stations = user.find_related(UserStation).all(db).await?;
+    let mut user_stations = user.find_related(UserStations).all(db).await?;
     user_stations.retain(|user_station| {
         !stations
             .iter()
@@ -390,17 +390,17 @@ async fn delete_user_stations_not_in_list(
 
 /// Removes from [`stations`] any that are in [`already_selected_stations`]
 fn filter_out_stations(
-    stations: &mut Vec<station::Model>,
-    already_selected_stations: &[station::Model],
+    stations: &mut Vec<stations::Model>,
+    already_selected_stations: &[stations::Model],
 ) {
     stations.retain(|station| !already_selected_stations.contains(station));
 }
 
 /// Removes stations from the list that the user is already subscribed to
 async fn remove_already_selected_stations(
-    user: &user::Model,
+    user: &users::Model,
     db: &impl ConnectionTrait,
-    stations: &mut Vec<station::Model>,
+    stations: &mut Vec<stations::Model>,
 ) -> Result<()> {
     let already_selected_stations = get_already_selected_stations(user, db).await?;
     filter_out_stations(stations, &already_selected_stations);
@@ -409,9 +409,9 @@ async fn remove_already_selected_stations(
 
 /// Deletes links from the database that are not in the list, than removes stations that already have links from the list. Order is important
 async fn delete_not_selected_user_stations(
-    user: &user::Model,
+    user: &users::Model,
     db: &impl ConnectionTrait,
-    stations: &mut Vec<station::Model>,
+    stations: &mut Vec<stations::Model>,
 ) -> Result<()> {
     delete_user_stations_not_in_list(&user, db, stations).await?;
     remove_already_selected_stations(&user, db, stations).await
@@ -431,7 +431,7 @@ async fn update_user_stations(
             user
         }
         None => {
-            user::ActiveModel {
+            users::ActiveModel {
                 email: ActiveValue::Set(email),
                 ..Default::default()
             }
@@ -440,10 +440,10 @@ async fn update_user_stations(
         }
     };
 
-    UserStation::insert_many(
+    UserStations::insert_many(
         stations
             .into_iter()
-            .map(|station| user_station::ActiveModel {
+            .map(|station| user_stations::ActiveModel {
                 user_id: ActiveValue::Set(user.id),
                 station_id: ActiveValue::Set(station.id),
             }),
@@ -476,7 +476,7 @@ mod test {
 
     use super::{
         Error,
-        database::{prelude::*, station, user, user_station},
+        database::{prelude::*, stations, users, user_stations},
         update_user_stations,
     };
 
@@ -489,83 +489,83 @@ mod test {
         let schema = sea_orm::Schema::new(backend);
 
         let table_create_statements = [
-            schema.create_table_from_entity(RailLine),
-            schema.create_table_from_entity(User),
-            schema.create_table_from_entity(Station),
-            schema.create_table_from_entity(UserStation),
+            schema.create_table_from_entity(RailLines),
+            schema.create_table_from_entity(Users),
+            schema.create_table_from_entity(Stations),
+            schema.create_table_from_entity(UserStations),
         ];
         for statement in table_create_statements {
             db.execute(backend.build(&statement)).await?;
         }
 
         let stations = [
-            station::ActiveModel {
+            stations::ActiveModel {
                 id: ActiveValue::Set(44),
                 name: ActiveValue::Set(String::from("Herndon")),
             },
-            station::ActiveModel {
+            stations::ActiveModel {
                 id: ActiveValue::Set(69),
                 name: ActiveValue::Set(String::from("Reston Town Center")),
             },
-            station::ActiveModel {
+            stations::ActiveModel {
                 id: ActiveValue::Set(97),
                 name: ActiveValue::Set(String::from("Wiehle-Reston East")),
             },
-            station::ActiveModel {
+            stations::ActiveModel {
                 id: ActiveValue::Set(79),
                 name: ActiveValue::Set(String::from("Spring Hill")),
             },
-            station::ActiveModel {
+            stations::ActiveModel {
                 id: ActiveValue::Set(42),
                 name: ActiveValue::Set(String::from("Greensboro")),
             },
-            station::ActiveModel {
+            stations::ActiveModel {
                 id: ActiveValue::Set(85),
                 name: ActiveValue::Set(String::from("Tysons")),
             },
-            station::ActiveModel {
+            stations::ActiveModel {
                 id: ActiveValue::Set(53),
                 name: ActiveValue::Set(String::from("McLean")),
             },
-            station::ActiveModel {
+            stations::ActiveModel {
                 id: ActiveValue::Set(26),
                 name: ActiveValue::Set(String::from("East Falls Church")),
             },
-            station::ActiveModel {
+            stations::ActiveModel {
                 id: ActiveValue::Set(6),
                 name: ActiveValue::Set(String::from("Ballston-MU")),
             },
-            station::ActiveModel {
+            stations::ActiveModel {
                 id: ActiveValue::Set(91),
                 name: ActiveValue::Set(String::from("Virginia Square-GMU")),
             },
-            station::ActiveModel {
+            stations::ActiveModel {
                 id: ActiveValue::Set(15),
                 name: ActiveValue::Set(String::from("Clarendon")),
             },
-            station::ActiveModel {
+            stations::ActiveModel {
                 id: ActiveValue::Set(20),
                 name: ActiveValue::Set(String::from("Court House")),
             },
-            station::ActiveModel {
+            stations::ActiveModel {
                 id: ActiveValue::Set(73),
                 name: ActiveValue::Set(String::from("Rosslyn")),
             },
-            station::ActiveModel {
+            stations::ActiveModel {
                 id: ActiveValue::Set(33),
                 name: ActiveValue::Set(String::from("Foggy Bottom-GWU")),
             },
-            station::ActiveModel {
+            stations::ActiveModel {
                 id: ActiveValue::Set(30),
                 name: ActiveValue::Set(String::from("Farragut West")),
             },
-            station::ActiveModel {
+            stations::ActiveModel {
                 id: ActiveValue::Set(54),
                 name: ActiveValue::Set(String::from("McPherson Square")),
             },
         ];
 
-        Station::insert_many(stations)
+        Stations::insert_many(stations)
             .on_conflict_do_nothing()
             .exec_without_returning(&db)
             .await?;
@@ -580,7 +580,7 @@ mod test {
         let email = String::from("general.konobi@jedi.com");
         assert!(get_user_by_email(&db, &email).await.unwrap().is_none());
 
-        let user = user::ActiveModel {
+        let user = users::ActiveModel {
             email: ActiveValue::Set(email.clone()),
             ..Default::default()
         };
@@ -593,12 +593,12 @@ mod test {
     #[tokio::test]
     async fn delete_user_test() {
         let db = setup_test_db().await.unwrap();
-        let user = user::ActiveModel::default_values()
+        let user = users::ActiveModel::default_values()
             .insert(&db)
             .await
             .unwrap();
-        UserStation::insert_many([6, 15, 26, 42, 44, 53, 69, 79, 85, 91, 97].map(|id| {
-            user_station::ActiveModel {
+        UserStations::insert_many([6, 15, 26, 42, 44, 53, 69, 79, 85, 91, 97].map(|id| {
+            user_stations::ActiveModel {
                 user_id: ActiveValue::Set(user.id),
                 station_id: ActiveValue::Set(id),
             }
@@ -630,47 +630,47 @@ mod test {
         .map(|name| name.to_string());
         let stations = super::get_stations_from_names(&db, &names).await.unwrap();
         let expected = [
-            station::Model {
+            stations::Model {
                 id: 6,
                 name: String::from("Ballston-MU"),
             },
-            station::Model {
+            stations::Model {
                 id: 15,
                 name: String::from("Clarendon"),
             },
-            station::Model {
+            stations::Model {
                 id: 26,
                 name: String::from("East Falls Church"),
             },
-            station::Model {
+            stations::Model {
                 id: 42,
                 name: String::from("Greensboro"),
             },
-            station::Model {
+            stations::Model {
                 id: 44,
                 name: String::from("Herndon"),
             },
-            station::Model {
+            stations::Model {
                 id: 53,
                 name: String::from("McLean"),
             },
-            station::Model {
+            stations::Model {
                 id: 69,
                 name: String::from("Reston Town Center"),
             },
-            station::Model {
+            stations::Model {
                 id: 79,
                 name: String::from("Spring Hill"),
             },
-            station::Model {
+            stations::Model {
                 id: 85,
                 name: String::from("Tysons"),
             },
-            station::Model {
+            stations::Model {
                 id: 91,
                 name: String::from("Virginia Square-GMU"),
             },
-            station::Model {
+            stations::Model {
                 id: 97,
                 name: String::from("Wiehle-Reston East"),
             },
@@ -681,53 +681,53 @@ mod test {
     #[tokio::test]
     async fn get_already_selected_stations_test() {
         let db = setup_test_db().await.unwrap();
-        let user = user::ActiveModel::default_values()
+        let user = users::ActiveModel::default_values()
             .insert(&db)
             .await
             .unwrap();
 
         let stations = [
-            station::Model {
+            stations::Model {
                 id: 6,
                 name: String::from("Ballston-MU"),
             },
-            station::Model {
+            stations::Model {
                 id: 15,
                 name: String::from("Clarendon"),
             },
-            station::Model {
+            stations::Model {
                 id: 26,
                 name: String::from("East Falls Church"),
             },
-            station::Model {
+            stations::Model {
                 id: 42,
                 name: String::from("Greensboro"),
             },
-            station::Model {
+            stations::Model {
                 id: 44,
                 name: String::from("Herndon"),
             },
-            station::Model {
+            stations::Model {
                 id: 53,
                 name: String::from("McLean"),
             },
-            station::Model {
+            stations::Model {
                 id: 69,
                 name: String::from("Reston Town Center"),
             },
-            station::Model {
+            stations::Model {
                 id: 79,
                 name: String::from("Spring Hill"),
             },
-            station::Model {
+            stations::Model {
                 id: 85,
                 name: String::from("Tysons"),
             },
-            station::Model {
+            stations::Model {
                 id: 91,
                 name: String::from("Virginia Square-GMU"),
             },
-            station::Model {
+            stations::Model {
                 id: 97,
                 name: String::from("Wiehle-Reston East"),
             },
@@ -735,12 +735,12 @@ mod test {
 
         let user_stations: Vec<_> = stations
             .iter()
-            .map(|station| user_station::ActiveModel {
+            .map(|station| user_stations::ActiveModel {
                 user_id: ActiveValue::Set(user.id),
                 station_id: ActiveValue::Set(station.id),
             })
             .collect();
-        UserStation::insert_many(user_stations)
+        UserStations::insert_many(user_stations)
             .on_empty_do_nothing()
             .exec_without_returning(&db)
             .await
@@ -755,70 +755,70 @@ mod test {
     #[test]
     fn filter_out_stations_test() {
         let already_selected_stations = [
-            station::Model {
+            stations::Model {
                 id: 44,
                 name: String::from("Herndon"),
             },
-            station::Model {
+            stations::Model {
                 id: 69,
                 name: String::from("Reston Town Center"),
             },
-            station::Model {
+            stations::Model {
                 id: 97,
                 name: String::from("Wiehle-Reston East"),
             },
-            station::Model {
+            stations::Model {
                 id: 79,
                 name: String::from("Spring Hill"),
             },
-            station::Model {
+            stations::Model {
                 id: 42,
                 name: String::from("Greensboro"),
             },
         ];
 
         let mut stations = vec![
-            station::Model {
+            stations::Model {
                 id: 44,
                 name: String::from("Herndon"),
             },
-            station::Model {
+            stations::Model {
                 id: 69,
                 name: String::from("Reston Town Center"),
             },
-            station::Model {
+            stations::Model {
                 id: 97,
                 name: String::from("Wiehle-Reston East"),
             },
-            station::Model {
+            stations::Model {
                 id: 79,
                 name: String::from("Spring Hill"),
             },
-            station::Model {
+            stations::Model {
                 id: 42,
                 name: String::from("Greensboro"),
             },
-            station::Model {
+            stations::Model {
                 id: 85,
                 name: String::from("Tysons"),
             },
-            station::Model {
+            stations::Model {
                 id: 53,
                 name: String::from("McLean"),
             },
-            station::Model {
+            stations::Model {
                 id: 26,
                 name: String::from("East Falls Church"),
             },
-            station::Model {
+            stations::Model {
                 id: 6,
                 name: String::from("Ballston-MU"),
             },
-            station::Model {
+            stations::Model {
                 id: 91,
                 name: String::from("Virginia Square-GMU"),
             },
-            station::Model {
+            stations::Model {
                 id: 15,
                 name: String::from("Clarendon"),
             },
@@ -827,27 +827,27 @@ mod test {
         super::filter_out_stations(&mut stations, &already_selected_stations);
 
         let expected = [
-            station::Model {
+            stations::Model {
                 id: 85,
                 name: String::from("Tysons"),
             },
-            station::Model {
+            stations::Model {
                 id: 53,
                 name: String::from("McLean"),
             },
-            station::Model {
+            stations::Model {
                 id: 26,
                 name: String::from("East Falls Church"),
             },
-            station::Model {
+            stations::Model {
                 id: 6,
                 name: String::from("Ballston-MU"),
             },
-            station::Model {
+            stations::Model {
                 id: 91,
                 name: String::from("Virginia Square-GMU"),
             },
-            station::Model {
+            stations::Model {
                 id: 15,
                 name: String::from("Clarendon"),
             },
@@ -859,36 +859,36 @@ mod test {
     #[tokio::test]
     async fn remove_already_selected_stations_test() {
         let db = setup_test_db().await.unwrap();
-        let user = user::ActiveModel::default_values()
+        let user = users::ActiveModel::default_values()
             .insert(&db)
             .await
             .unwrap();
 
         let already_selected_stations = [
-            station::Model {
+            stations::Model {
                 id: 44,
                 name: String::from("Herndon"),
             },
-            station::Model {
+            stations::Model {
                 id: 69,
                 name: String::from("Reston Town Center"),
             },
-            station::Model {
+            stations::Model {
                 id: 97,
                 name: String::from("Wiehle-Reston East"),
             },
-            station::Model {
+            stations::Model {
                 id: 79,
                 name: String::from("Spring Hill"),
             },
-            station::Model {
+            stations::Model {
                 id: 42,
                 name: String::from("Greensboro"),
             },
         ];
 
-        UserStation::insert_many(already_selected_stations.map(|station| {
-            user_station::ActiveModel {
+        UserStations::insert_many(already_selected_stations.map(|station| {
+            user_stations::ActiveModel {
                 user_id: ActiveValue::Set(user.id),
                 station_id: ActiveValue::Set(station.id),
             }
@@ -899,47 +899,47 @@ mod test {
         .unwrap();
 
         let mut stations = vec![
-            station::Model {
+            stations::Model {
                 id: 44,
                 name: String::from("Herndon"),
             },
-            station::Model {
+            stations::Model {
                 id: 69,
                 name: String::from("Reston Town Center"),
             },
-            station::Model {
+            stations::Model {
                 id: 97,
                 name: String::from("Wiehle-Reston East"),
             },
-            station::Model {
+            stations::Model {
                 id: 79,
                 name: String::from("Spring Hill"),
             },
-            station::Model {
+            stations::Model {
                 id: 42,
                 name: String::from("Greensboro"),
             },
-            station::Model {
+            stations::Model {
                 id: 85,
                 name: String::from("Tysons"),
             },
-            station::Model {
+            stations::Model {
                 id: 53,
                 name: String::from("McLean"),
             },
-            station::Model {
+            stations::Model {
                 id: 26,
                 name: String::from("East Falls Church"),
             },
-            station::Model {
+            stations::Model {
                 id: 6,
                 name: String::from("Ballston-MU"),
             },
-            station::Model {
+            stations::Model {
                 id: 91,
                 name: String::from("Virginia Square-GMU"),
             },
-            station::Model {
+            stations::Model {
                 id: 15,
                 name: String::from("Clarendon"),
             },
@@ -950,27 +950,27 @@ mod test {
             .unwrap();
 
         let expected = [
-            station::Model {
+            stations::Model {
                 id: 85,
                 name: String::from("Tysons"),
             },
-            station::Model {
+            stations::Model {
                 id: 53,
                 name: String::from("McLean"),
             },
-            station::Model {
+            stations::Model {
                 id: 26,
                 name: String::from("East Falls Church"),
             },
-            station::Model {
+            stations::Model {
                 id: 6,
                 name: String::from("Ballston-MU"),
             },
-            station::Model {
+            stations::Model {
                 id: 91,
                 name: String::from("Virginia Square-GMU"),
             },
-            station::Model {
+            stations::Model {
                 id: 15,
                 name: String::from("Clarendon"),
             },
@@ -982,53 +982,53 @@ mod test {
     #[tokio::test]
     async fn delete_user_stations_not_in_list_test() {
         let db = setup_test_db().await.unwrap();
-        let user = user::ActiveModel::default_values()
+        let user = users::ActiveModel::default_values()
             .insert(&db)
             .await
             .unwrap();
 
         let stations = vec![
-            station::Model {
+            stations::Model {
                 id: 44,
                 name: String::from("Herndon"),
             },
-            station::Model {
+            stations::Model {
                 id: 69,
                 name: String::from("Reston Town Center"),
             },
-            station::Model {
+            stations::Model {
                 id: 97,
                 name: String::from("Wiehle-Reston East"),
             },
-            station::Model {
+            stations::Model {
                 id: 79,
                 name: String::from("Spring Hill"),
             },
-            station::Model {
+            stations::Model {
                 id: 42,
                 name: String::from("Greensboro"),
             },
-            station::Model {
+            stations::Model {
                 id: 85,
                 name: String::from("Tysons"),
             },
-            station::Model {
+            stations::Model {
                 id: 53,
                 name: String::from("McLean"),
             },
-            station::Model {
+            stations::Model {
                 id: 26,
                 name: String::from("East Falls Church"),
             },
-            station::Model {
+            stations::Model {
                 id: 6,
                 name: String::from("Ballston-MU"),
             },
-            station::Model {
+            stations::Model {
                 id: 91,
                 name: String::from("Virginia Square-GMU"),
             },
-            station::Model {
+            stations::Model {
                 id: 15,
                 name: String::from("Clarendon"),
             },
@@ -1036,35 +1036,35 @@ mod test {
 
         let user_stations: Vec<_> = stations
             .iter()
-            .map(|station| user_station::ActiveModel {
+            .map(|station| user_stations::ActiveModel {
                 user_id: ActiveValue::Set(user.id),
                 station_id: ActiveValue::Set(station.id),
             })
             .collect();
-        UserStation::insert_many(user_stations)
+        UserStations::insert_many(user_stations)
             .on_conflict_do_nothing()
             .exec_without_returning(&db)
             .await
             .unwrap();
 
         let expected = [
-            station::Model {
+            stations::Model {
                 id: 42,
                 name: String::from("Greensboro"),
             },
-            station::Model {
+            stations::Model {
                 id: 44,
                 name: String::from("Herndon"),
             },
-            station::Model {
+            stations::Model {
                 id: 69,
                 name: String::from("Reston Town Center"),
             },
-            station::Model {
+            stations::Model {
                 id: 79,
                 name: String::from("Spring Hill"),
             },
-            station::Model {
+            stations::Model {
                 id: 97,
                 name: String::from("Wiehle-Reston East"),
             },
@@ -1074,66 +1074,66 @@ mod test {
             .await
             .unwrap();
 
-        let result = user.find_related(Station).all(&db).await.unwrap();
+        let result = user.find_related(Stations).all(&db).await.unwrap();
         assert_eq!(result, expected);
     }
 
     #[tokio::test]
     async fn delete_not_selected_user_stations_test() {
         let db = setup_test_db().await.unwrap();
-        let user = user::ActiveModel::default_values()
+        let user = users::ActiveModel::default_values()
             .insert(&db)
             .await
             .unwrap();
 
         let stations = [
-            station::Model {
+            stations::Model {
                 id: 44,
                 name: String::from("Herndon"),
             },
-            station::Model {
+            stations::Model {
                 id: 69,
                 name: String::from("Reston Town Center"),
             },
-            station::Model {
+            stations::Model {
                 id: 97,
                 name: String::from("Wiehle-Reston East"),
             },
-            station::Model {
+            stations::Model {
                 id: 79,
                 name: String::from("Spring Hill"),
             },
-            station::Model {
+            stations::Model {
                 id: 42,
                 name: String::from("Greensboro"),
             },
-            station::Model {
+            stations::Model {
                 id: 85,
                 name: String::from("Tysons"),
             },
-            station::Model {
+            stations::Model {
                 id: 53,
                 name: String::from("McLean"),
             },
-            station::Model {
+            stations::Model {
                 id: 26,
                 name: String::from("East Falls Church"),
             },
-            station::Model {
+            stations::Model {
                 id: 6,
                 name: String::from("Ballston-MU"),
             },
-            station::Model {
+            stations::Model {
                 id: 91,
                 name: String::from("Virginia Square-GMU"),
             },
-            station::Model {
+            stations::Model {
                 id: 15,
                 name: String::from("Clarendon"),
             },
         ];
 
-        UserStation::insert_many(stations.map(|station| user_station::ActiveModel {
+        UserStations::insert_many(stations.map(|station| user_stations::ActiveModel {
             user_id: ActiveValue::Set(user.id),
             station_id: ActiveValue::Set(station.id),
         }))
@@ -1143,27 +1143,27 @@ mod test {
         .unwrap();
 
         let mut selected_stations = vec![
-            station::Model {
+            stations::Model {
                 id: 85,
                 name: String::from("Tysons"),
             },
-            station::Model {
+            stations::Model {
                 id: 53,
                 name: String::from("McLean"),
             },
-            station::Model {
+            stations::Model {
                 id: 26,
                 name: String::from("East Falls Church"),
             },
-            station::Model {
+            stations::Model {
                 id: 6,
                 name: String::from("Ballston-MU"),
             },
-            station::Model {
+            stations::Model {
                 id: 91,
                 name: String::from("Virginia Square-GMU"),
             },
-            station::Model {
+            stations::Model {
                 id: 15,
                 name: String::from("Clarendon"),
             },
@@ -1177,7 +1177,7 @@ mod test {
             .unwrap();
         assert!(selected_stations.is_empty());
 
-        let current_stations = user.find_related(Station).all(&db).await.unwrap();
+        let current_stations = user.find_related(Stations).all(&db).await.unwrap();
         assert_eq!(current_stations, expected);
     }
 
@@ -1202,17 +1202,17 @@ mod test {
             .await
             .unwrap();
 
-        let user_stations = User::find_by_id(1)
+        let user_stations = Users::find_by_id(1)
             .one(&db)
             .await
             .unwrap()
             .unwrap()
-            .find_related(UserStation)
+            .find_related(UserStations)
             .all(&db)
             .await
             .unwrap();
         let expected =
-            [6, 15, 26, 42, 44, 53, 69, 79, 85, 91, 97].map(|stations_id| user_station::Model {
+            [6, 15, 26, 42, 44, 53, 69, 79, 85, 91, 97].map(|stations_id| user_stations::Model {
                 user_id: 1,
                 station_id: stations_id,
             });
@@ -1220,13 +1220,13 @@ mod test {
     }
 
     async fn update_user_stations_existing_user_test_framework(
-        starting_stations: &[station::Model],
+        starting_stations: &[stations::Model],
         stations: &[String],
-    ) -> Result<Vec<station::Model>, Error> {
+    ) -> Result<Vec<stations::Model>, Error> {
         let db = setup_test_db().await?;
-        let user = user::ActiveModel::default_values().insert(&db).await?;
-        UserStation::insert_many(starting_stations.into_iter().map(|station| {
-            user_station::ActiveModel {
+        let user = users::ActiveModel::default_values().insert(&db).await?;
+        UserStations::insert_many(starting_stations.into_iter().map(|station| {
+            user_stations::ActiveModel {
                 user_id: ActiveValue::Set(user.id),
                 station_id: ActiveValue::Set(station.id),
             }
@@ -1236,29 +1236,29 @@ mod test {
         .await?;
 
         update_user_stations(&db, &stations, user.email.clone()).await?;
-        Ok(user.find_related(Station).all(&db).await?)
+        Ok(user.find_related(Stations).all(&db).await?)
     }
 
     #[tokio::test]
     async fn update_user_stations_test_add_stations() {
         let starting_stations = [
-            station::Model {
+            stations::Model {
                 id: 44,
                 name: String::from("Herndon"),
             },
-            station::Model {
+            stations::Model {
                 id: 69,
                 name: String::from("Reston Town Center"),
             },
-            station::Model {
+            stations::Model {
                 id: 97,
                 name: String::from("Wiehle-Reston East"),
             },
-            station::Model {
+            stations::Model {
                 id: 79,
                 name: String::from("Spring Hill"),
             },
-            station::Model {
+            stations::Model {
                 id: 42,
                 name: String::from("Greensboro"),
             },
@@ -1280,47 +1280,47 @@ mod test {
         .map(|name| name.to_string());
 
         let expected = [
-            station::Model {
+            stations::Model {
                 id: 6,
                 name: String::from("Ballston-MU"),
             },
-            station::Model {
+            stations::Model {
                 id: 15,
                 name: String::from("Clarendon"),
             },
-            station::Model {
+            stations::Model {
                 id: 26,
                 name: String::from("East Falls Church"),
             },
-            station::Model {
+            stations::Model {
                 id: 42,
                 name: String::from("Greensboro"),
             },
-            station::Model {
+            stations::Model {
                 id: 44,
                 name: String::from("Herndon"),
             },
-            station::Model {
+            stations::Model {
                 id: 53,
                 name: String::from("McLean"),
             },
-            station::Model {
+            stations::Model {
                 id: 69,
                 name: String::from("Reston Town Center"),
             },
-            station::Model {
+            stations::Model {
                 id: 79,
                 name: String::from("Spring Hill"),
             },
-            station::Model {
+            stations::Model {
                 id: 85,
                 name: String::from("Tysons"),
             },
-            station::Model {
+            stations::Model {
                 id: 91,
                 name: String::from("Virginia Square-GMU"),
             },
-            station::Model {
+            stations::Model {
                 id: 97,
                 name: String::from("Wiehle-Reston East"),
             },
@@ -1337,47 +1337,47 @@ mod test {
     #[tokio::test]
     async fn update_user_stations_test_remove_stations() {
         let starting_stations = [
-            station::Model {
+            stations::Model {
                 id: 44,
                 name: String::from("Herndon"),
             },
-            station::Model {
+            stations::Model {
                 id: 69,
                 name: String::from("Reston Town Center"),
             },
-            station::Model {
+            stations::Model {
                 id: 97,
                 name: String::from("Wiehle-Reston East"),
             },
-            station::Model {
+            stations::Model {
                 id: 79,
                 name: String::from("Spring Hill"),
             },
-            station::Model {
+            stations::Model {
                 id: 42,
                 name: String::from("Greensboro"),
             },
-            station::Model {
+            stations::Model {
                 id: 85,
                 name: String::from("Tysons"),
             },
-            station::Model {
+            stations::Model {
                 id: 53,
                 name: String::from("McLean"),
             },
-            station::Model {
+            stations::Model {
                 id: 26,
                 name: String::from("East Falls Church"),
             },
-            station::Model {
+            stations::Model {
                 id: 6,
                 name: String::from("Ballston-MU"),
             },
-            station::Model {
+            stations::Model {
                 id: 91,
                 name: String::from("Virginia Square-GMU"),
             },
-            station::Model {
+            stations::Model {
                 id: 15,
                 name: String::from("Clarendon"),
             },
@@ -1393,23 +1393,23 @@ mod test {
         .map(|name| name.to_string());
 
         let expected = [
-            station::Model {
+            stations::Model {
                 id: 42,
                 name: String::from("Greensboro"),
             },
-            station::Model {
+            stations::Model {
                 id: 44,
                 name: String::from("Herndon"),
             },
-            station::Model {
+            stations::Model {
                 id: 69,
                 name: String::from("Reston Town Center"),
             },
-            station::Model {
+            stations::Model {
                 id: 79,
                 name: String::from("Spring Hill"),
             },
-            station::Model {
+            stations::Model {
                 id: 97,
                 name: String::from("Wiehle-Reston East"),
             },
@@ -1426,47 +1426,47 @@ mod test {
     #[tokio::test]
     async fn update_user_stations_test_add_remove_stations() {
         let starting_stations = [
-            station::Model {
+            stations::Model {
                 id: 44,
                 name: String::from("Herndon"),
             },
-            station::Model {
+            stations::Model {
                 id: 69,
                 name: String::from("Reston Town Center"),
             },
-            station::Model {
+            stations::Model {
                 id: 97,
                 name: String::from("Wiehle-Reston East"),
             },
-            station::Model {
+            stations::Model {
                 id: 79,
                 name: String::from("Spring Hill"),
             },
-            station::Model {
+            stations::Model {
                 id: 42,
                 name: String::from("Greensboro"),
             },
-            station::Model {
+            stations::Model {
                 id: 85,
                 name: String::from("Tysons"),
             },
-            station::Model {
+            stations::Model {
                 id: 53,
                 name: String::from("McLean"),
             },
-            station::Model {
+            stations::Model {
                 id: 26,
                 name: String::from("East Falls Church"),
             },
-            station::Model {
+            stations::Model {
                 id: 6,
                 name: String::from("Ballston-MU"),
             },
-            station::Model {
+            stations::Model {
                 id: 91,
                 name: String::from("Virginia Square-GMU"),
             },
-            station::Model {
+            stations::Model {
                 id: 15,
                 name: String::from("Clarendon"),
             },
@@ -1488,47 +1488,47 @@ mod test {
         .map(|name| name.to_string());
 
         let expected = [
-            station::Model {
+            stations::Model {
                 id: 6,
                 name: String::from("Ballston-MU"),
             },
-            station::Model {
+            stations::Model {
                 id: 15,
                 name: String::from("Clarendon"),
             },
-            station::Model {
+            stations::Model {
                 id: 20,
                 name: String::from("Court House"),
             },
-            station::Model {
+            stations::Model {
                 id: 26,
                 name: String::from("East Falls Church"),
             },
-            station::Model {
+            stations::Model {
                 id: 30,
                 name: String::from("Farragut West"),
             },
-            station::Model {
+            stations::Model {
                 id: 33,
                 name: String::from("Foggy Bottom-GWU"),
             },
-            station::Model {
+            stations::Model {
                 id: 53,
                 name: String::from("McLean"),
             },
-            station::Model {
+            stations::Model {
                 id: 54,
                 name: String::from("McPherson Square"),
             },
-            station::Model {
+            stations::Model {
                 id: 73,
                 name: String::from("Rosslyn"),
             },
-            station::Model {
+            stations::Model {
                 id: 85,
                 name: String::from("Tysons"),
             },
-            station::Model {
+            stations::Model {
                 id: 91,
                 name: String::from("Virginia Square-GMU"),
             },

@@ -3,35 +3,32 @@
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
-#[sea_orm(table_name = "RailLine")]
+#[sea_orm(table_name = "Users")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false, unique)]
     pub id: i32,
     #[sea_orm(unique)]
-    pub name: String,
-    pub red: Option<i8>,
-    pub green: Option<i8>,
-    pub blue: Option<i8>,
+    pub email: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(has_many = "super::line_station::Entity")]
-    LineStation,
+    #[sea_orm(has_many = "super::user_stations::Entity")]
+    UserStations,
 }
 
-impl Related<super::line_station::Entity> for Entity {
+impl Related<super::user_stations::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::LineStation.def()
+        Relation::UserStations.def()
     }
 }
 
-impl Related<super::station::Entity> for Entity {
+impl Related<super::stations::Entity> for Entity {
     fn to() -> RelationDef {
-        super::line_station::Relation::Station.def()
+        super::user_stations::Relation::Stations.def()
     }
     fn via() -> Option<RelationDef> {
-        Some(super::line_station::Relation::RailLine.def().rev())
+        Some(super::user_stations::Relation::Users.def().rev())
     }
 }
 

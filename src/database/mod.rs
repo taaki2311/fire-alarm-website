@@ -2,8 +2,8 @@
 
 pub mod prelude;
 
-pub mod line_station;
-pub mod rail_line;
-pub mod station;
-pub mod user;
-pub mod user_station;
+pub mod line_stations;
+pub mod rail_lines;
+pub mod stations;
+pub mod user_stations;
+pub mod users;

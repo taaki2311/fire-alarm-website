@@ -2,8 +2,8 @@
 
 #![allow(unused_imports)]
 
-pub use super::line_station::Entity as LineStation;
-pub use super::rail_line::Entity as RailLine;
-pub use super::station::Entity as Station;
-pub use super::user::Entity as User;
-pub use super::user_station::Entity as UserStation;
+pub use super::line_stations::Entity as LineStations;
+pub use super::rail_lines::Entity as RailLines;
+pub use super::stations::Entity as Stations;
+pub use super::user_stations::Entity as UserStations;
+pub use super::users::Entity as Users;
