@@ -1,3 +1,56 @@
+/**
+ * @param {number} value 
+ * @returns {number} value clamp to a single unsigned 8-bit number
+ */
+function clampU8(value) {
+    return Math.max(Math.min(Math.trunc(value), 255), 0)
+}
+
+class LineColor {
+    /**
+     * @param {number} red 
+     * @param {number} green 
+     * @param {number} blue 
+     */
+    constructor(red, green, blue) {
+        this.red = clampU8(red);
+        this.green = clampU8(green);
+        this.blue = clampU8(blue);
+    }
+
+    toRgb() {
+        return `rgb(${this.red}, ${this.green}, ${this.blue})`;
+    }
+}
+
+/**
+ * @param {string} message - Message to give to the user
+ */
+function displayResult(message) {
+    document.getElementById('result').innerText = message;
+}
+
+let colors;
+let filter; // eslint-disable-line no-unused-vars
+/**
+ * Initializes the variables for all the metro lines
+ */
+async function getLineInfos() {
+    try {
+        const lines = await fetch('/get_lines').then((response) => response.json());
+        document.getElementById('stationsFilter').innerHTML = lines.map((line) => `
+            <input type="checkbox" id="${line.name}" onchange="updateStationList(filter, stations, this.id, this.checked)">
+            <label for="${line.name}" style="background-color: rgb(${line.red}, ${line.green}, ${line.blue}); font-size: larger;">
+            ${line.name}</label>
+        `).join('');
+        colors = new Map(lines.map(line => [line.name, new LineColor(line.red, line.green, line.blue)]))
+        filter = new Map(lines.map((line) => [line.name, false]));
+    } catch (error) {
+        displayResult(`Error when getting lines: ${error}`);
+    }
+}
+getLineInfos();
+
 class StationInfo {
     /**
      * @param {string} name - Name of the station
@@ -24,34 +77,13 @@ class StationInfo {
     /**
      * @returns {string} HTML formatting for a checkbox
      */
-    toCheckbox() {
-        return `<p id="${this.name}"><input type="checkbox" id="${this.name}_cb"><label for="${this.name}_cb">${this.name}</label></p>`;
+    toHtml() {
+        return `<dt name="${this.name}"><input type="checkbox" id="${this.name}"><label for="${this.name}">${this.name}</label>
+            </dt><dd name="${this.name}"><ul>`
+            + this.lines.map((line) => `<li style="background-color: ${colors.get(line).toRgb()};">${line}</li>`).join('')
+            + `</ul></dd>`;
     }
 }
-
-/**
- * @param {string} message - Message to give to the user
- */
-function displayResult(message) {
-    document.getElementById('result').innerText = message;
-}
-
-/**
- * Initializes the filter for all the metro lines
- */
-let filter; // eslint-disable-line no-unused-vars
-async function getLines() {
-    try {
-        const lines = await fetch('/get_lines').then((response) => response.json());
-        document.getElementById('stationsFilter').innerHTML = lines.map((line) => `
-            <input type="checkbox" id="${line}" onchange="updateStationList(filter, stations, this.id, this.checked)">
-            <label for="${line}">${line}</label>`).join('');
-        filter = new Map(lines.map((line) => [line, false]));
-    } catch (error) {
-        displayResult(`Error when getting lines: ${error}`);
-    }
-}
-getLines();
 
 /**
  * Initializes the list of all the stations with each line they are on
@@ -61,7 +93,7 @@ async function getStationInfos() {
     try {
         const json = await fetch('/get_stations').then((response) => response.json());
         stations = json.map(station => new StationInfo(station.name, station.lines));
-        document.getElementById('stationList').innerHTML = stations.map((station) => station.toCheckbox()).join('');
+        document.getElementById('stationList').innerHTML = stations.map((station) => station.toHtml()).join('');
     } catch (error) {
         displayResult(`Error when getting station information: ${error}`);
     }
@@ -78,16 +110,16 @@ function updateStationList(filter, stations, name, checked) { // eslint-disable-
     filter.set(name, checked);
     if (filter.values().some((enabled) => enabled)) {
         for (const station of stations) {
-            const element = document.getElementById(station.name).style;
+            const elements = Array.from(document.getElementsByName(station.name));
             if (station.shouldDisplay(filter)) {
-                element.display = 'block';
+                elements.map((element) => element.style.display = 'contents');
             } else {
-                element.display = 'none';
+                elements.map((element) => element.style.display = 'none');
             }
         }
     } else {
         for (const station of stations) {
-            document.getElementById(station.name).style.display = 'block';
+            Array.from(document.getElementsByName(station.name)).map((element) => element.style.display = 'contents');
         }
     }
 }
@@ -135,23 +167,16 @@ class Subscription {
     }
 }
 
-/**
- * @returns {string[]} - List of the stations that the user has selected
- */
-function getStations() {
-    return Array.from(document.getElementById('stationList').elements)
-        .filter((station) => station.checked).map((station) => station.getAttribute('name'));
-}
-
 document.getElementById('subscriptionForm').addEventListener('submit', async (event) => {
     event.preventDefault();
     const email = new FormData(document.getElementById('emailForm')).get('email');
     const code = parseInt(new FormData(event.target).get('code'));
     const user_auth = new UserAuth(email, code);
-    const stations = getStations();
+    const stations = Array.from(document.getElementById('stationList').getElementsByTagName('input'))
+        .filter((element) => 'checkbox' === element.type && element.checked).map((station) => station.id);
 
     let init;
-    if (stations.length === 0) {
+    if (0 === stations.length) {
         init = {
             method: 'DELETE',
             body: JSON.stringify(user_auth),

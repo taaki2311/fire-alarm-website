@@ -1,5 +1,4 @@
 body {
-    background-color: gainsboro;
     font-family: sans-serif;
 }
 
@@ -8,19 +7,46 @@ input[type=checkbox] {
     visibility: hidden;
 }
 
-input[type=checkbox] + label {
+button, input, label {
+    background-color: unset;
     border-radius: .5em; 
-    border-style: solid;
-    border-width: .2em;
+    border: .2em solid;
+    display: inline-block;
+    margin: .15em 0;
     padding: .25em;
+    transition-duration: .2s;
 }
 
-input[type=checkbox]:hover + label {
-    background-color: gray;
+button, input {
+    font-size: larger;
+}
+
+button:hover, label:hover {
+    transform: translateY(-.25em);
+}
+
+button:active {
     opacity: .5;
+    transition-duration: unset;
 }
 
 input[type=checkbox]:checked + label {
-    background-color: gray;
-    opacity: unset;
+    opacity: .5;
+}
+
+dt, dd, ul {
+    display: contents;
+}
+
+dd::after {
+    content: "\A";
+    white-space: pre;
+}
+
+li {
+    border-radius: .5em;
+    display: inline-block;
+    font-size: smaller;
+    margin: .2em;
+    padding: .25em;
 }

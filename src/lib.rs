@@ -10,14 +10,14 @@ use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, ModelTrait,
     QueryFilter,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tokio::{
     sync::{Mutex, oneshot},
     time,
 };
 
 mod database;
-use crate::database::{prelude::*, stations, users, user_stations};
+use crate::database::{prelude::*, rail_lines, stations, user_stations, users};
 
 /// All possible errors that the website could encounter
 #[derive(Debug, thiserror::Error)]
@@ -202,22 +202,45 @@ impl<T: AsyncTransport, C: ConnectionTrait> AppState<T, C> {
     }
 }
 
+#[derive(Serialize)]
+pub struct LineInfo {
+    name: String,
+    red: u8,
+    green: u8,
+    blue: u8,
+}
+
+fn clamp_conversion(value: i16) -> u8 {
+    value.clamp(u8::MIN.into(), u8::MAX.into()) as u8
+}
+
+impl From<rail_lines::Model> for LineInfo {
+    fn from(value: rail_lines::Model) -> Self {
+        LineInfo {
+            name: value.name,
+            red: clamp_conversion(value.red),
+            green: clamp_conversion(value.green),
+            blue: clamp_conversion(value.blue),
+        }
+    }
+}
+
 /// Fetches the list of rail lines on the network
 pub async fn get_lines<T: AsyncTransport, C: ConnectionTrait>(
     State(state): State<Arc<Mutex<AppState<T, C>>>>,
-) -> Result<Json<Vec<String>>> {
+) -> Result<Json<Vec<LineInfo>>> {
     Ok(Json(
         RailLines::find()
             .all(&state.lock().await.db)
             .await?
             .into_iter()
-            .map(|line| line.name)
+            .map(|line| line.into())
             .collect(),
     ))
 }
 
 /// Station name and the rail lines that it is on, for client-side filtering
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, Serialize)]
 pub struct StationInfo {
     name: String,
     lines: Vec<String>,
@@ -476,7 +499,7 @@ mod test {
 
     use super::{
         Error,
-        database::{prelude::*, stations, users, user_stations},
+        database::{prelude::*, stations, user_stations, users},
         update_user_stations,
     };
 
