@@ -1,7 +1,8 @@
-use std::sync::Arc;
+use std::{net, sync::Arc};
 
 use axum::response::Html;
 use axum_extra::response::{Css, JavaScript};
+use camino::Utf8PathBuf;
 use clap::Parser;
 
 use fire_alarm_website::{AppState, Result};
@@ -10,7 +11,6 @@ use tokio::{fs, sync::Mutex};
 #[tokio::main]
 async fn main() {
     use axum::routing;
-    use std::net;
 
     let args = Args::parse();
 
@@ -29,12 +29,16 @@ async fn main() {
         .await
         .expect("Failed to connect to SQL database");
 
-    let state = Arc::new(Mutex::new(AppState::new(
-        mailbox,
-        transport,
-        db,
-        tokio::time::Duration::from_secs(args.timeout.into()),
-    )));
+    let state = Arc::new(Mutex::new(
+        AppState::new(
+            mailbox,
+            transport,
+            db,
+            tokio::time::Duration::from_secs(args.timeout.into()),
+            args.email_template,
+        )
+        .expect("Failed to parse template"),
+    ));
 
     let router = axum::Router::new()
         .route("/", routing::get(index))
@@ -60,8 +64,7 @@ async fn main() {
         )
         .with_state(state.clone());
 
-    let addr = net::SocketAddr::new(net::IpAddr::V4(net::Ipv4Addr::new(127, 0, 0, 1)), 3000);
-    let listener = tokio::net::TcpListener::bind(addr)
+    let listener = tokio::net::TcpListener::bind(args.url)
         .await
         .expect("Failed to bind to socket");
     axum::serve(listener, router)
@@ -103,6 +106,16 @@ struct Args {
     #[arg(short, long, default_value_t = 600)]
     #[cfg_attr(feature = "env", arg(env))]
     pub timeout: u16,
+
+    /// Template for Verification Emails
+    #[arg(short, long, default_value_t = Utf8PathBuf::from("email.html"))]
+    #[cfg_attr(feature = "env", arg(env))]
+    pub email_template: Utf8PathBuf,
+
+    /// URL for Server
+    #[arg(short, long, default_value_t = net::SocketAddr::V4(net::SocketAddrV4::new(net::Ipv4Addr::new(127, 0, 0, 1), 8080)))]
+    #[cfg_attr(feature = "env", arg(env))]
+    pub url: net::SocketAddr,
 }
 
 /// Serve `index.html` from the file system

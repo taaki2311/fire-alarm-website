@@ -6,11 +6,13 @@ edition = "2024"
 [dependencies]
 axum = "0.8.8"
 axum-extra = "0.12.5"
+camino = "1.2.2"
 clap = { version = "4.5.54", features = ["derive"] }
 lettre = { version = "0.11.19", features = ["serde", "tokio1-native-tls"] }
 rand = "0.10.0"
 sea-orm = { version = "1.1.19", features = ["runtime-tokio-native-tls"] }
 serde = { version = "1.0.228", features = ["derive"] }
+tera = "1.20.1"
 thiserror = "2.0.17"
 tokio = { version = "1.50.0", features = ["full"] }
 

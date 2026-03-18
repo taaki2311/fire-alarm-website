@@ -11,6 +11,7 @@ use sea_orm::{
     QueryFilter,
 };
 use serde::{Deserialize, Serialize};
+use tera::Tera;
 use tokio::{
     sync::{Mutex, oneshot},
     time,
@@ -45,6 +46,9 @@ pub enum Error {
 
     #[error("Server is shutting down and cannot accept new submissions")]
     ServerShutdown,
+
+    #[error("Template Error: {0}")]
+    TemplateError(#[from] tera::Error),
 }
 
 impl IntoResponse for Error {
@@ -61,6 +65,7 @@ impl IntoResponse for Error {
             Error::EmailNotFound(_) => StatusCode::GONE,
             Error::CodeDoesNotMatch(_) => StatusCode::UNAUTHORIZED,
             Error::ServerShutdown => StatusCode::SERVICE_UNAVAILABLE,
+            Error::TemplateError(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
         let message = format!("{self:?}");
         eprintln!("{message}");
@@ -181,20 +186,32 @@ pub struct AppState<T: AsyncTransport, C: ConnectionTrait> {
     message_builder: message::MessageBuilder,
     transport: T,
     db: C,
+    email_template: Tera,
 }
 
 impl<T: AsyncTransport, C: ConnectionTrait> AppState<T, C> {
+    const TEMPLATE: &str = "Email Template";
+
     /// Pre-build the message as much as it can and passes the timeout duration to the internal [`OtpDb`]
-    pub fn new(mailbox: message::Mailbox, transport: T, db: C, duration: time::Duration) -> Self {
-        Self {
+    pub fn new(
+        mailbox: message::Mailbox,
+        transport: T,
+        db: C,
+        duration: time::Duration,
+        email_template: impl AsRef<std::path::Path>,
+    ) -> Result<Self> {
+        let mut template = Tera::default();
+        template.add_template_file(email_template, Some(Self::TEMPLATE))?;
+        Ok(Self {
             otp_db: OtpDb::new(duration),
             message_builder: lettre::Message::builder()
                 .from(mailbox)
                 .subject("Fire-Alarm Verification Code")
-                .header(message::header::ContentType::TEXT_PLAIN),
+                .header(message::header::ContentType::TEXT_HTML),
             transport: transport,
             db: db,
-        }
+            email_template: template,
+        })
     }
 
     pub fn shutdown(&mut self) -> Option<oneshot::Receiver<()>> {
@@ -291,11 +308,17 @@ where
     }
     println!("{email}: {code:0>6}");
 
+    let mut context = tera::Context::new();
+    context.insert(stringify!(code), &code);
+    let body = app_state
+        .email_template
+        .render(AppState::<T, C>::TEMPLATE, &context)?;
+
     let message = app_state
         .message_builder
         .clone()
         .to(address.into())
-        .body(format!("{code:0>6}"))?; // Pad with zero to 6 digits
+        .body(body)?; // Pad with zero to 6 digits
 
     match app_state.transport.send(message).await {
         Ok(_) => Ok(()),
