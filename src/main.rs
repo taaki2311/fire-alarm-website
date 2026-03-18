@@ -34,7 +34,7 @@ async fn main() {
             mailbox,
             transport,
             db,
-            tokio::time::Duration::from_secs(args.timeout.into()),
+            args.timeout.into(),
             args.email_template,
         )
         .expect("Failed to parse template"),
@@ -102,10 +102,10 @@ struct Args {
     #[cfg_attr(feature = "env", arg(env))]
     pub database: sea_orm::ConnectOptions,
 
-    /// Timeout for authenticating the user's email in seconds (0-65535)
-    #[arg(short, long, default_value_t = 600)]
+    /// Timeout for authenticating the user's email
+    #[arg(short, long, default_value_t = tokio::time::Duration::from_mins(5).into())]
     #[cfg_attr(feature = "env", arg(env))]
-    pub timeout: u16,
+    pub timeout: humantime::Duration,
 
     /// Template for Verification Emails
     #[arg(short, long, default_value_t = Utf8PathBuf::from("email.html"))]
