@@ -13,7 +13,16 @@
         Select the stations that you want to receive notifications about.<br>
         Not selecting stations will remove them from your profile.
     </p>
-    <form id="stationsFilter"></form>
+    <form id="stationsFilter">
+        {% for line in lines %}
+        <input type="checkbox" id="{{ line.name }}"
+            onchange="updateStationList(filter, stations, this.id, this.checked)">
+        <label for="{{ line.name }}"
+            style="background-color: rgb({{ line.red }}, {{ line.green }}, {{ line.blue }}); font-size: larger;">
+            {{ line.name }}
+        </label>
+        {% endfor %}
+    </form>
     <dl id="stationList"></dl>
     <form id="emailForm">
         <input type="email" name="email" placeholder="Email" required>
@@ -24,6 +33,44 @@
         <button type="submit">Verify</button>
     </form>
     <p id="result"></p>
+    <script>
+        /**
+        * @param {number} value 
+        * @returns {number} value clamped to a single unsigned 8-bit number
+        */
+        function clampU8(value) {
+            return Math.max(Math.min(Math.trunc(value), 255), 0)
+        }
+
+        class Color {
+            /**
+            * @param {number} red 
+            * @param {number} green 
+            * @param {number} blue 
+            */
+            constructor(red, green, blue) {
+                this.red = clampU8(red);
+                this.green = clampU8(green);
+                this.blue = clampU8(blue);
+            }
+
+            toRgb() {
+                return `rgb(${this.red}, ${this.green}, ${this.blue})`;
+            }
+        }
+
+        const colors = new Map([
+            {% for line in lines %}
+            ['{{ line.name }}', new Color({{ line.red }}, {{ line.green }}, {{ line.blue }})],
+            {% endfor %}
+        ]);
+
+        const filter = new Map([
+            {% for line in lines %}
+            ['{{ line.name }}', false],
+            {% endfor %}
+        ]);
+    </script>
     <script src="/index.js"></script>
     <noscript>Please Enable Javascript Support</noscript>
 </body>

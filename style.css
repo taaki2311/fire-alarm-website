@@ -14,7 +14,7 @@ button, input, label {
     display: inline-block;
     margin: .15em 0;
     padding: .25em;
-    transition-duration: .2s;
+    transition-duration: 50ms;
 }
 
 button, input {

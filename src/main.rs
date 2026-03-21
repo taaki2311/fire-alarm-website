@@ -1,6 +1,5 @@
 use std::{net, sync::Arc};
 
-use axum::response::Html;
 use axum_extra::response::{Css, JavaScript};
 use camino::Utf8PathBuf;
 use clap::Parser;
@@ -41,12 +40,10 @@ async fn main() {
     ));
 
     let router = axum::Router::new()
-        .route("/", routing::get(index))
-        .route("/index.html", routing::get(index))
+        .route("/", routing::get(fire_alarm_website::index))
+        .route("/index.html", routing::get(fire_alarm_website::index))
         .route("/index.js", routing::get(script))
         .route("/style.css", routing::get(style))
-        .route("/get_lines", routing::get(fire_alarm_website::get_lines))
-        .with_state(state.clone())
         .route(
             "/get_stations",
             routing::get(fire_alarm_website::get_stations),
@@ -116,11 +113,6 @@ struct Args {
     #[arg(short, long, default_value_t = net::SocketAddr::V4(net::SocketAddrV4::new(net::Ipv4Addr::new(127, 0, 0, 1), 8080)))]
     #[cfg_attr(feature = "env", arg(env))]
     pub url: net::SocketAddr,
-}
-
-/// Serve `index.html` from the file system
-async fn index() -> Result<Html<String>> {
-    Ok(Html(fs::read_to_string("index.html").await?))
 }
 
 /// Serve `index.js` from the file system

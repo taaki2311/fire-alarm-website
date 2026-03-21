@@ -3,7 +3,7 @@ use std::{collections::HashMap, result, sync::Arc};
 use axum::{
     Json,
     extract::State,
-    response::{IntoResponse, Response},
+    response::{Html, IntoResponse, Response},
 };
 use lettre::{Address, AsyncTransport, message};
 use sea_orm::{
@@ -242,17 +242,28 @@ impl From<rail_lines::Model> for LineInfo {
     }
 }
 
-/// Fetches the list of rail lines on the network
-pub async fn get_lines<T: AsyncTransport, C: ConnectionTrait>(
-    State(state): State<Arc<Mutex<AppState<T, C>>>>,
-) -> Result<Json<Vec<LineInfo>>> {
-    Ok(Json(
-        RailLines::find()
+#[derive(Serialize)]
+struct IndexContext {
+    lines: Vec<LineInfo>,
+}
+
+pub async fn index(
+    State(state): State<Arc<Mutex<AppState<impl AsyncTransport, impl ConnectionTrait>>>>,
+) -> Result<Html<String>> {
+    let context = IndexContext {
+        lines: RailLines::find()
             .all(&state.lock().await.db)
             .await?
             .into_iter()
-            .map(|line| line.into())
+            .map(|line_info| line_info.into())
             .collect(),
+    };
+
+    let mut template = tera::Tera::default();
+    let path = "index.html";
+    template.add_template_file(path, None)?;
+    Ok(Html(
+        template.render(path, &tera::Context::from_serialize(context)?)?,
     ))
 }
 

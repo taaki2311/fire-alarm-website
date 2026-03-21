@@ -1,55 +1,9 @@
 /**
- * @param {number} value 
- * @returns {number} value clamp to a single unsigned 8-bit number
- */
-function clampU8(value) {
-    return Math.max(Math.min(Math.trunc(value), 255), 0)
-}
-
-class LineColor {
-    /**
-     * @param {number} red 
-     * @param {number} green 
-     * @param {number} blue 
-     */
-    constructor(red, green, blue) {
-        this.red = clampU8(red);
-        this.green = clampU8(green);
-        this.blue = clampU8(blue);
-    }
-
-    toRgb() {
-        return `rgb(${this.red}, ${this.green}, ${this.blue})`;
-    }
-}
-
-/**
  * @param {string} message - Message to give to the user
  */
 function displayResult(message) {
     document.getElementById('result').innerText = message;
 }
-
-let colors;
-let filter; // eslint-disable-line no-unused-vars
-/**
- * Initializes the variables for all the metro lines
- */
-async function getLineInfos() {
-    try {
-        const lines = await fetch('/get_lines').then((response) => response.json());
-        document.getElementById('stationsFilter').innerHTML = lines.map((line) => `
-            <input type="checkbox" id="${line.name}" onchange="updateStationList(filter, stations, this.id, this.checked)">
-            <label for="${line.name}" style="background-color: rgb(${line.red}, ${line.green}, ${line.blue}); font-size: larger;">
-            ${line.name}</label>
-        `).join('');
-        colors = new Map(lines.map(line => [line.name, new LineColor(line.red, line.green, line.blue)]))
-        filter = new Map(lines.map((line) => [line.name, false]));
-    } catch (error) {
-        displayResult(`Error when getting lines: ${error}`);
-    }
-}
-getLineInfos();
 
 class StationInfo {
     /**
@@ -80,6 +34,7 @@ class StationInfo {
     toHtml() {
         return `<dt name="${this.name}"><input type="checkbox" id="${this.name}"><label for="${this.name}">${this.name}</label>
             </dt><dd name="${this.name}"><ul>`
+            // eslint-disable-next-line no-undef
             + this.lines.map((line) => `<li style="background-color: ${colors.get(line).toRgb()};">${line}</li>`).join('')
             + `</ul></dd>`;
     }
@@ -92,7 +47,7 @@ let stations;
 async function getStationInfos() {
     try {
         const json = await fetch('/get_stations').then((response) => response.json());
-        stations = json.map(station => new StationInfo(station.name, station.lines));
+        stations = json.map((station) => new StationInfo(station.name, station.lines));
         document.getElementById('stationList').innerHTML = stations.map((station) => station.toHtml()).join('');
     } catch (error) {
         displayResult(`Error when getting station information: ${error}`);
