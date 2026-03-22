@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 axum = "0.8.8"
 axum-extra = "0.12.5"
-camino = "1.2.2"
 clap = { version = "4.5.54", features = ["derive"] }
 humantime = "2.3.0"
 lettre = { version = "0.11.19", features = ["serde", "tokio1-native-tls"] }

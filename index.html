@@ -14,16 +14,32 @@
         Not selecting stations will remove them from your profile.
     </p>
     <form id="stationsFilter">
-        {% for line in lines %}
+        {% for line in lines -%}
         <input type="checkbox" id="{{ line.name }}"
             onchange="updateStationList(filter, stations, this.id, this.checked)">
         <label for="{{ line.name }}"
             style="background-color: rgb({{ line.red }}, {{ line.green }}, {{ line.blue }}); font-size: larger;">
             {{ line.name }}
         </label>
-        {% endfor %}
+        {% endfor -%}
     </form>
-    <dl id="stationList"></dl>
+    <dl id="stationList">
+        {% for station in stations -%}
+        <dt name="{{ station.name }}">
+            <input type="checkbox" id="{{ station.name }}">
+            <label for="{{ station.name }}">{{ station.name }}</label>
+        </dt>
+        <dd name="{{ station.name }}">
+            <ul>
+                {% for line in station.lines -%}
+                <li style="background-color: rgb({{ line.red }}, {{ line.green }}, {{ line.blue }});">
+                    {{ line.name }}
+                </li>
+                {% endfor -%}
+            </ul>
+        </dd>
+        {% endfor -%}
+    </dl>
     <form id="emailForm">
         <input type="email" name="email" placeholder="Email" required>
         <button type="submit">Request Code</button>
@@ -34,42 +50,43 @@
     </form>
     <p id="result"></p>
     <script>
-        /**
-        * @param {number} value 
-        * @returns {number} value clamped to a single unsigned 8-bit number
-        */
-        function clampU8(value) {
-            return Math.max(Math.min(Math.trunc(value), 255), 0)
-        }
-
-        class Color {
-            /**
-            * @param {number} red 
-            * @param {number} green 
-            * @param {number} blue 
-            */
-            constructor(red, green, blue) {
-                this.red = clampU8(red);
-                this.green = clampU8(green);
-                this.blue = clampU8(blue);
-            }
-
-            toRgb() {
-                return `rgb(${this.red}, ${this.green}, ${this.blue})`;
-            }
-        }
-
-        const colors = new Map([
-            {% for line in lines %}
-            ['{{ line.name }}', new Color({{ line.red }}, {{ line.green }}, {{ line.blue }})],
-            {% endfor %}
-        ]);
-
         const filter = new Map([
-            {% for line in lines %}
+            {% for line in lines -%}
             ['{{ line.name }}', false],
-            {% endfor %}
+            {% endfor -%}
         ]);
+
+        class StationInfo {
+            /**
+            * @param {string} name - Name of the station
+            * @param {string[]} lines - Lines that the station is on
+            */
+            constructor(name, lines) {
+                this.name = name;
+                this.lines = lines;
+            }
+
+            /**
+            * @param {Map<string, boolean>} filter - Filter to be checked against
+            * @returns {boolean} - Should the station be displayed?
+            */
+            shouldDisplay(filter) {
+                for (const line of this.lines) {
+                    if (filter.get(line)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        }
+
+        const stations = [
+            {% for station in stations -%}
+            new StationInfo('{{ station.name | replace(from="'", to="\'") | safe }}', [
+                {% for line in station.lines %}'{{ line.name }}', {% endfor %}
+            ]),
+            {% endfor -%}
+        ];
     </script>
     <script src="/index.js"></script>
     <noscript>Please Enable Javascript Support</noscript>

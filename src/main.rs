@@ -1,11 +1,9 @@
 use std::{net, sync::Arc};
 
-use axum_extra::response::{Css, JavaScript};
-use camino::Utf8PathBuf;
 use clap::Parser;
 
-use fire_alarm_website::{AppState, Result};
-use tokio::{fs, sync::Mutex};
+use fire_alarm_website::AppState;
+use tokio::sync::Mutex;
 
 #[tokio::main]
 async fn main() {
@@ -29,26 +27,15 @@ async fn main() {
         .expect("Failed to connect to SQL database");
 
     let state = Arc::new(Mutex::new(
-        AppState::new(
-            mailbox,
-            transport,
-            db,
-            args.timeout.into(),
-            args.email_template,
-        )
-        .expect("Failed to parse template"),
+        AppState::new(mailbox, transport, db, args.timeout.into())
+            .expect("Failed to parse template"),
     ));
 
     let router = axum::Router::new()
         .route("/", routing::get(fire_alarm_website::index))
         .route("/index.html", routing::get(fire_alarm_website::index))
-        .route("/index.js", routing::get(script))
-        .route("/style.css", routing::get(style))
-        .route(
-            "/get_stations",
-            routing::get(fire_alarm_website::get_stations),
-        )
-        .with_state(state.clone())
+        .route("/index.js", routing::get(fire_alarm_website::script))
+        .route("/style.css", routing::get(fire_alarm_website::style))
         .route(
             "/submit_email",
             routing::post(fire_alarm_website::submit_email),
@@ -104,25 +91,10 @@ struct Args {
     #[cfg_attr(feature = "env", arg(env))]
     pub timeout: humantime::Duration,
 
-    /// Template for Verification Emails
-    #[arg(short, long, default_value_t = Utf8PathBuf::from("email.html"))]
-    #[cfg_attr(feature = "env", arg(env))]
-    pub email_template: Utf8PathBuf,
-
     /// URL for Server
     #[arg(short, long, default_value_t = net::SocketAddr::V4(net::SocketAddrV4::new(net::Ipv4Addr::new(127, 0, 0, 1), 8080)))]
     #[cfg_attr(feature = "env", arg(env))]
     pub url: net::SocketAddr,
-}
-
-/// Serve `index.js` from the file system
-async fn script() -> Result<JavaScript<String>> {
-    Ok(JavaScript(fs::read_to_string("index.js").await?))
-}
-
-/// Serve `style.css` from the file system
-async fn style() -> Result<Css<String>> {
-    Ok(Css(fs::read_to_string("style.css").await?))
 }
 
 /// Waits on receiving a signal from Standard-In to start shutting down the server.

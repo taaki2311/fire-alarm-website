@@ -5,56 +5,6 @@ function displayResult(message) {
     document.getElementById('result').innerText = message;
 }
 
-class StationInfo {
-    /**
-     * @param {string} name - Name of the station
-     * @param {string[]} lines - Lines that the station is on
-     */
-    constructor(name, lines) {
-        this.name = name;
-        this.lines = lines;
-    }
-
-    /**
-     * @param {Map<string, boolean>} filter - Filter to be checked against
-     * @returns {boolean} - Should the station be displayed?
-     */
-    shouldDisplay(filter) {
-        for (const line of this.lines) {
-            if (filter.get(line)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * @returns {string} HTML formatting for a checkbox
-     */
-    toHtml() {
-        return `<dt name="${this.name}"><input type="checkbox" id="${this.name}"><label for="${this.name}">${this.name}</label>
-            </dt><dd name="${this.name}"><ul>`
-            // eslint-disable-next-line no-undef
-            + this.lines.map((line) => `<li style="background-color: ${colors.get(line).toRgb()};">${line}</li>`).join('')
-            + `</ul></dd>`;
-    }
-}
-
-/**
- * Initializes the list of all the stations with each line they are on
- */
-let stations;
-async function getStationInfos() {
-    try {
-        const json = await fetch('/get_stations').then((response) => response.json());
-        stations = json.map((station) => new StationInfo(station.name, station.lines));
-        document.getElementById('stationList').innerHTML = stations.map((station) => station.toHtml()).join('');
-    } catch (error) {
-        displayResult(`Error when getting station information: ${error}`);
-    }
-}
-getStationInfos();
-
 /**
  * @param {Map<string, boolean>} filter - Filter to be updated
  * @param {StationInfo[]} stations - Stations to be filtered

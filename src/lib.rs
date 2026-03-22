@@ -5,6 +5,7 @@ use axum::{
     extract::State,
     response::{Html, IntoResponse, Response},
 };
+use axum_extra::response::{Css, JavaScript};
 use lettre::{Address, AsyncTransport, message};
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, ModelTrait,
@@ -13,6 +14,7 @@ use sea_orm::{
 use serde::{Deserialize, Serialize};
 use tera::Tera;
 use tokio::{
+    fs,
     sync::{Mutex, oneshot},
     time,
 };
@@ -198,10 +200,9 @@ impl<T: AsyncTransport, C: ConnectionTrait> AppState<T, C> {
         transport: T,
         db: C,
         duration: time::Duration,
-        email_template: impl AsRef<std::path::Path>,
     ) -> Result<Self> {
         let mut template = Tera::default();
-        template.add_template_file(email_template, Some(Self::TEMPLATE))?;
+        template.add_template_file("email.html", Some(Self::TEMPLATE))?;
         Ok(Self {
             otp_db: OtpDb::new(duration),
             message_builder: lettre::Message::builder()
@@ -242,21 +243,48 @@ impl From<rail_lines::Model> for LineInfo {
     }
 }
 
+/// Station name and the rail lines that it is on, for client-side filtering
+#[derive(Serialize)]
+pub struct StationInfo {
+    name: String,
+    lines: Vec<LineInfo>,
+}
+
 #[derive(Serialize)]
 struct IndexContext {
     lines: Vec<LineInfo>,
+    stations: Vec<StationInfo>,
 }
 
 pub async fn index(
     State(state): State<Arc<Mutex<AppState<impl AsyncTransport, impl ConnectionTrait>>>>,
 ) -> Result<Html<String>> {
-    let context = IndexContext {
-        lines: RailLines::find()
-            .all(&state.lock().await.db)
+    let db = &state.lock().await.db;
+    let stations = Stations::find().all(db).await?;
+    let mut station_infos = Vec::with_capacity(stations.len());
+    for station in stations {
+        let lines = station
+            .find_related(RailLines)
+            .all(db)
             .await?
             .into_iter()
-            .map(|line_info| line_info.into())
+            .map(|line| line.into())
+            .collect();
+        let station_info = StationInfo {
+            name: station.name,
+            lines: lines,
+        };
+        station_infos.push(station_info);
+    }
+
+    let context = IndexContext {
+        lines: RailLines::find()
+            .all(db)
+            .await?
+            .into_iter()
+            .map(|line| line.into())
             .collect(),
+        stations: station_infos,
     };
 
     let mut template = tera::Tera::default();
@@ -267,35 +295,14 @@ pub async fn index(
     ))
 }
 
-/// Station name and the rail lines that it is on, for client-side filtering
-#[derive(Clone, Serialize)]
-pub struct StationInfo {
-    name: String,
-    lines: Vec<String>,
+/// Serve `index.js` from the file system
+pub async fn script() -> Result<JavaScript<String>> {
+    Ok(JavaScript(fs::read_to_string("index.js").await?))
 }
 
-/// Gets the stations and formats them as [StationInfo]
-pub async fn get_stations<T: AsyncTransport, C: ConnectionTrait>(
-    State(state): State<Arc<Mutex<AppState<T, C>>>>,
-) -> Result<Json<Vec<StationInfo>>> {
-    let db = &state.lock().await.db;
-    let stations = Stations::find().all(db).await?;
-    let mut station_infos = Vec::with_capacity(stations.len());
-    for station in stations {
-        let lines = station
-            .find_related(RailLines)
-            .all(db)
-            .await?
-            .into_iter()
-            .map(|line| line.name)
-            .collect();
-        let station_info = StationInfo {
-            name: station.name,
-            lines: lines,
-        };
-        station_infos.push(station_info);
-    }
-    Ok(Json(station_infos))
+/// Serve `style.css` from the file system
+pub async fn style() -> Result<Css<String>> {
+    Ok(Css(fs::read_to_string("style.css").await?))
 }
 
 /// Starting point for modifying a subscription, will send a verification code to the given email
@@ -317,10 +324,10 @@ where
     {
         old_entry.handle.abort();
     }
-    println!("{email}: {code:0>6}");
+    println!("{email}: {code:0>6}"); // TODO: Remove
 
     let mut context = tera::Context::new();
-    context.insert(stringify!(code), &code);
+    context.insert(stringify!(code), &format!("{code:0>6}"));
     let body = app_state
         .email_template
         .render(AppState::<T, C>::TEMPLATE, &context)?;
@@ -512,8 +519,8 @@ async fn update_user_stations(
 }
 
 /// Wrapper for [`update_user_stations`] that includes authentication
-pub async fn update_subscription<T: AsyncTransport, C: ConnectionTrait>(
-    State(state): State<Arc<Mutex<AppState<T, C>>>>,
+pub async fn update_subscription(
+    State(state): State<Arc<Mutex<AppState<impl AsyncTransport, impl ConnectionTrait>>>>,
     Json(subscription): Json<Subscription>,
 ) -> Result<()> {
     let mut app_state = state.lock().await;
