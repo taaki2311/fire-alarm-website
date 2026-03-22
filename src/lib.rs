@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use tera::Tera;
 use tokio::{
     fs,
-    sync::{Mutex, oneshot},
+    sync::{Mutex, OnceCell, oneshot},
     time,
 };
 
@@ -256,10 +256,7 @@ struct IndexContext {
     stations: Vec<StationInfo>,
 }
 
-pub async fn index(
-    State(state): State<Arc<Mutex<AppState<impl AsyncTransport, impl ConnectionTrait>>>>,
-) -> Result<Html<String>> {
-    let db = &state.lock().await.db;
+async fn parse_index(db: &impl ConnectionTrait) -> Result<String> {
     let stations = Stations::find().all(db).await?;
     let mut station_infos = Vec::with_capacity(stations.len());
     for station in stations {
@@ -287,22 +284,46 @@ pub async fn index(
         stations: station_infos,
     };
 
-    let mut template = tera::Tera::default();
-    let path = "index.html";
-    template.add_template_file(path, None)?;
+    Tera::one_off(
+        &fs::read_to_string("index.html").await?,
+        &tera::Context::from_serialize(context)?,
+        true,
+    )
+    .map_err(|err| err.into())
+}
+
+/// Serve a cached `index.html` from the file system after being parsed by the template engine
+pub async fn index(
+    State(state): State<Arc<Mutex<AppState<impl AsyncTransport, impl ConnectionTrait>>>>,
+) -> Result<Html<String>> {
+    static INDEX_HTML: OnceCell<String> = OnceCell::const_new();
+    let db = &state.lock().await.db;
     Ok(Html(
-        template.render(path, &tera::Context::from_serialize(context)?)?,
+        INDEX_HTML
+            .get_or_try_init(|| parse_index(db))
+            .await
+            .cloned()?,
     ))
 }
 
-/// Serve `index.js` from the file system
+/// Serve a cached `index.js` from the file system
 pub async fn script() -> Result<JavaScript<String>> {
-    Ok(JavaScript(fs::read_to_string("index.js").await?))
+    static INDEX_JS: OnceCell<String> = OnceCell::const_new();
+    Ok(JavaScript(
+        INDEX_JS
+            .get_or_try_init(|| fs::read_to_string("index.js"))
+            .await
+            .cloned()?,
+    ))
 }
 
-/// Serve `style.css` from the file system
+/// Serve a cached `style.css` from the file system
 pub async fn style() -> Result<Css<String>> {
-    Ok(Css(fs::read_to_string("style.css").await?))
+    static STYLE_CSS: OnceCell<String> = OnceCell::const_new();
+    Ok(Css(STYLE_CSS
+        .get_or_try_init(|| fs::read_to_string("style.css"))
+        .await
+        .cloned()?))
 }
 
 /// Starting point for modifying a subscription, will send a verification code to the given email
