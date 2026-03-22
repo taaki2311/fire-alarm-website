@@ -101,12 +101,10 @@ struct Args {
 async fn shutdown_signal<T: lettre::AsyncTransport, C: sea_orm::ConnectionTrait>(
     state: Arc<Mutex<AppState<T, C>>>,
 ) {
-    use tokio::io::AsyncReadExt;
-    println!("Press 'Enter' to shutdown server");
-    tokio::io::stdin()
-        .read_u8()
+    println!("Send Interrupt Signal (SIGINT/Ctrl-C) to shutdown server");
+    tokio::signal::ctrl_c()
         .await
-        .inspect_err(|err| eprintln!("Failed to read from Standard-In: {err}"))
+        .inspect_err(|err| eprintln!("Interrupt Signal Error: {err}"))
         .unwrap_or_default();
     if let Some(shutdown_signal) = { state.lock().await.shutdown() } {
         // Need to put 'state.lock()' into its own block so that the lock get released

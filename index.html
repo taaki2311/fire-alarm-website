@@ -13,16 +13,18 @@
         Select the stations that you want to receive notifications about.<br>
         Not selecting stations will remove them from your profile.
     </p>
-    <form id="stationsFilter">
+    <ul id="stationsFilter">
         {% for line in lines -%}
-        <input type="checkbox" id="{{ line.name }}"
-            onchange="updateStationList(filter, stations, this.id, this.checked)">
-        <label for="{{ line.name }}"
-            style="background-color: rgb({{ line.red }}, {{ line.green }}, {{ line.blue }}); font-size: larger;">
-            {{ line.name }}
-        </label>
+        <li>
+            <input type="checkbox" id="{{ line.name }}"
+                onchange="updateStationList(filter, stations, this.id, this.checked)">
+            <label for="{{ line.name }}"
+                style="background-color: rgb({{ line.red }}, {{ line.green }}, {{ line.blue }}); font-size: larger;">
+                {{ line.name }}
+            </label>
+        </li>
         {% endfor -%}
-    </form>
+    </ul>
     <dl id="stationList">
         {% for station in stations -%}
         <dt name="{{ station.name }}">

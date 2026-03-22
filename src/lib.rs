@@ -88,16 +88,9 @@ struct OneTimePasscode {
 
 impl OneTimePasscode {
     /// Creates a background timer than when expires will remove the verification code from the OTP database, thus invalidating it
-    fn new(
+    fn new<T: AsyncTransport + Send + 'static, C: ConnectionTrait + Send + 'static>(
         email: Address,
-        state: Arc<
-            Mutex<
-                AppState<
-                    impl AsyncTransport + Send + 'static,
-                    impl ConnectionTrait + Send + 'static,
-                >,
-            >,
-        >,
+        state: Arc<Mutex<AppState<T, C>>>,
         code: CodeType,
         duration: time::Duration,
     ) -> Self {
@@ -215,13 +208,14 @@ impl<T: AsyncTransport, C: ConnectionTrait> AppState<T, C> {
         })
     }
 
+    /// Passes a shutdown to it private internal [`OtpDb`]
     pub fn shutdown(&mut self) -> Option<oneshot::Receiver<()>> {
         self.otp_db.shutdown()
     }
 }
 
 #[derive(Serialize)]
-pub struct LineInfo {
+struct LineInfo {
     name: String,
     red: u8,
     green: u8,
@@ -245,17 +239,19 @@ impl From<rail_lines::Model> for LineInfo {
 
 /// Station name and the rail lines that it is on, for client-side filtering
 #[derive(Serialize)]
-pub struct StationInfo {
+struct StationInfo {
     name: String,
     lines: Vec<LineInfo>,
 }
 
+/// Context that is given to the templating engine so that it can populate the `index.html` with lines and stations
 #[derive(Serialize)]
 struct IndexContext {
     lines: Vec<LineInfo>,
     stations: Vec<StationInfo>,
 }
 
+/// Fetches all of the lines and stations, formats them into a [`IndexContext`], and passes it off to the template engine for parsing
 async fn parse_index(db: &impl ConnectionTrait) -> Result<String> {
     let stations = Stations::find().all(db).await?;
     let mut station_infos = Vec::with_capacity(stations.len());
@@ -373,7 +369,7 @@ pub struct UserAuth {
 }
 
 impl UserAuth {
-    /// Checks the code against the OTP database
+    /// Checks the code against the One-time Password database
     async fn auth(&self, otp_db: &mut OtpDb) -> Result<()> {
         if match otp_db.remove(&self.email)? {
             Some(otp_data) => otp_data.end(self.code),
