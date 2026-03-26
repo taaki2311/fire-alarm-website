@@ -1,4 +1,4 @@
-use std::{collections::HashMap, result, sync::Arc};
+use std::{collections::HashMap, env, result, sync::Arc};
 
 use axum::{
     Json,
@@ -181,12 +181,11 @@ pub struct AppState<T: AsyncTransport, C: ConnectionTrait> {
     message_builder: message::MessageBuilder,
     transport: T,
     db: C,
+    email_template_name: String,
     email_template: Tera,
 }
 
 impl<T: AsyncTransport, C: ConnectionTrait> AppState<T, C> {
-    const TEMPLATE: &str = "Email Template";
-
     /// Pre-build the message as much as it can and passes the timeout duration to the internal [`OtpDb`]
     pub fn new(
         mailbox: message::Mailbox,
@@ -194,8 +193,10 @@ impl<T: AsyncTransport, C: ConnectionTrait> AppState<T, C> {
         db: C,
         duration: time::Duration,
     ) -> Result<Self> {
+        let email_template_name =
+            env::var("EMAIL_TEMPLATE").unwrap_or_else(|_| "email.html".to_string());
         let mut template = Tera::default();
-        template.add_template_file("email.html", Some(Self::TEMPLATE))?;
+        template.add_template_file(&email_template_name, None)?;
         Ok(Self {
             otp_db: OtpDb::new(duration),
             message_builder: lettre::Message::builder()
@@ -204,6 +205,7 @@ impl<T: AsyncTransport, C: ConnectionTrait> AppState<T, C> {
                 .header(message::header::ContentType::TEXT_HTML),
             transport: transport,
             db: db,
+            email_template_name: email_template_name,
             email_template: template,
         })
     }
@@ -270,19 +272,18 @@ async fn parse_index(db: &impl ConnectionTrait) -> Result<String> {
         station_infos.push(station_info);
     }
 
-    let context = IndexContext {
-        lines: RailLines::find()
-            .all(db)
-            .await?
-            .into_iter()
-            .map(|line| line.into())
-            .collect(),
-        stations: station_infos,
-    };
-
     Tera::one_off(
-        &fs::read_to_string("index.html").await?,
-        &tera::Context::from_serialize(context)?,
+        &fs::read_to_string(env::var("INDEX_HTML").unwrap_or_else(|_| "index.html".to_string()))
+            .await?,
+        &tera::Context::from_serialize(IndexContext {
+            lines: RailLines::find()
+                .all(db)
+                .await?
+                .into_iter()
+                .map(|line| line.into())
+                .collect(),
+            stations: station_infos,
+        })?,
         true,
     )
     .map_err(|err| err.into())
@@ -307,7 +308,9 @@ pub async fn script() -> Result<JavaScript<String>> {
     static INDEX_JS: OnceCell<String> = OnceCell::const_new();
     Ok(JavaScript(
         INDEX_JS
-            .get_or_try_init(|| fs::read_to_string("index.js"))
+            .get_or_try_init(|| {
+                fs::read_to_string(env::var("SCRIPT_JS").unwrap_or_else(|_| "index.js".to_string()))
+            })
             .await
             .cloned()?,
     ))
@@ -317,7 +320,9 @@ pub async fn script() -> Result<JavaScript<String>> {
 pub async fn style() -> Result<Css<String>> {
     static STYLE_CSS: OnceCell<String> = OnceCell::const_new();
     Ok(Css(STYLE_CSS
-        .get_or_try_init(|| fs::read_to_string("style.css"))
+        .get_or_try_init(|| {
+            fs::read_to_string(env::var("STYLE_CSS").unwrap_or_else(|_| "style.css".to_string()))
+        })
         .await
         .cloned()?))
 }
@@ -347,7 +352,7 @@ where
     context.insert(stringify!(code), &format!("{code:0>6}"));
     let body = app_state
         .email_template
-        .render(AppState::<T, C>::TEMPLATE, &context)?;
+        .render(&app_state.email_template_name, &context)?;
 
     let message = app_state
         .message_builder
