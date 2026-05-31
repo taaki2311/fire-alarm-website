@@ -62,7 +62,7 @@ async fn main() {
 #[command(version)]
 struct Args {
     /// Email address to send from
-    #[arg(short, long)]
+    #[arg(short, long, default_value_t = lettre::Address::new("no-reply", "fire-alarm.org").unwrap())]
     #[cfg_attr(feature = "env", arg(env))]
     pub address: lettre::Address,
 

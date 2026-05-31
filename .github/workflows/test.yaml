@@ -1,0 +1,22 @@
+name: Test
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  Test:
+    runs-on: ubuntu-latest  
+    steps:
+    - uses: actions/checkout@v6
+    - name: Build
+      run: cargo build --verbose
+    - name: Install Dotenvx
+      run: curl https://dotenvx.sh/install.sh | sh
+    - name: Test
+      run: dotenvx run -- cargo test --verbose
+      env:
+        DOTENV_PRIVATE_KEY_CI: ${{ secrets.DOTENV_PRIVATE_KEY_CI }}
+        RUST_BACKTRACE: 1
