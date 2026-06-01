@@ -14,9 +14,9 @@ jobs:
     - name: Build
       run: cargo build --verbose
     - name: Install Dotenvx
-      run: curl https://dotenvx.sh/install.sh | sh
+      run: curl --verbose https://dotenvx.sh/install.sh | sh
     - name: Test
       run: dotenvx run -- cargo test --verbose
       env:
-        DOTENV_PRIVATE_KEY_CI: ${{ secrets.DOTENV_PRIVATE_KEY_CI }}
+        DOTENV_PRIVATE_KEY_TEST: ${{ secrets.DOTENV_PRIVATE_KEY_TEST }}
         RUST_BACKTRACE: 1
