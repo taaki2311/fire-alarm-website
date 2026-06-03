@@ -3,14 +3,55 @@
 
 <head>
     <title>Fire Alarm</title>
+    <style>
+        body {
+            background-color: cornflowerblue;
+            font: large sans-serif;
+            align-items: center;
+        }
+
+        div {
+            text-align: center;
+        }
+
+        @keyframes pulseFire {
+            from {
+                text-shadow: none;
+            }
+
+            to {
+                text-shadow: 0 0 0.5em tomato;
+            }
+        }
+
+        h1 {
+            animation: pulseFire 5s infinite alternate;
+        }
+
+        mark {
+            background-color: midnightblue;
+            border: medium solid black;
+            color: lavender;
+            font-size: x-large;
+            margin: .5em;
+            padding: .3em;
+        }
+
+        mark:hover {
+            background-color: coral;
+            color: black;
+        }
+    </style>
     <meta charset="utf-8">
 </head>
 
 <body>
-    <h1>Fire Alarm</h1>
-    <p>Thank you for using the Fire Alarm service, Your verification code is listed below:</p>
-    <div>{{ code }}</div>
-    <p>If you did not request this code, than you can safely ignore this.</p>
+    <div>
+        <h1>&#x1F525; Fire Alarm &#x1F525;</h1>
+        <p>Thank you for using the Fire Alarm service.<br>Your verification code is listed below:</p>
+        <mark>{{ code }}</mark>
+        <p>If you did not request this code,<br>than you can safely ignore this.</p>
+    </div>
 </body>
 
 </html>
