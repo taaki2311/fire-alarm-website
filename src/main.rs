@@ -101,11 +101,21 @@ struct Args {
 async fn shutdown_signal<T: lettre::AsyncTransport, C: sea_orm::ConnectionTrait>(
     state: Arc<Mutex<AppState<T, C>>>,
 ) {
-    println!("Send Interrupt Signal (SIGINT/Ctrl-C) to shutdown server");
-    tokio::signal::ctrl_c()
-        .await
-        .inspect_err(|err| eprintln!("Interrupt Signal Error: {err}"))
-        .unwrap_or_default();
+    use tokio::signal;
+
+    println!("Send Interrupt (Ctrl-C) or Terminate Signal to shutdown server");
+    cfg_select! {
+        unix => {
+            let mut interrupt_signal = signal::unix::signal(signal::unix::SignalKind::interrupt()).expect("Failed to create listener for interrupt signal");
+            let mut terminate_signal = signal::unix::signal(signal::unix::SignalKind::terminate()).expect("Failed to create listener for termination signal");
+            tokio::select! {
+                interrupt = interrupt_signal.recv() => interrupt.unwrap_or_default(),
+                terminate = terminate_signal.recv() => terminate.unwrap_or_default(),
+            }
+        },
+        _ => signal::ctrl_c().await.inspect_err(|err| eprintln!("Interrupt Signal Error: {err}")).unwrap_or_default()
+    }
+
     if let Some(shutdown_signal) = { state.lock().await.shutdown() } {
         // Need to put 'state.lock()' into its own block so that the lock get released
         println!("Waiting on some One-Time Passcodes that are still valid");
