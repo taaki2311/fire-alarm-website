@@ -294,10 +294,9 @@ pub async fn index(
     State(state): State<Arc<Mutex<AppState<impl AsyncTransport, impl ConnectionTrait>>>>,
 ) -> Result<Html<String>> {
     static INDEX_HTML: OnceCell<String> = OnceCell::const_new();
-    let db = &state.lock().await.db;
     Ok(Html(
         INDEX_HTML
-            .get_or_try_init(|| parse_index(db))
+            .get_or_try_init(|| async { parse_index(&state.lock().await.db).await })
             .await
             .cloned()?,
     ))

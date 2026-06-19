@@ -14,11 +14,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Build
-        run: cargo build --verbose
+        run: cargo build
       - name: Install Dotenvx
-        run: curl --verbose https://dotenvx.sh/install.sh | sh
+        run: curl --show-error --silent https://dotenvx.sh/install.sh | sh
       - name: Test
-        run: dotenvx run -- cargo test --verbose
+        run: dotenvx run -- cargo test
         env:
           DOTENV_PRIVATE_KEY_TEST: ${{ secrets.DOTENV_PRIVATE_KEY_TEST }}
           RUST_BACKTRACE: 1
