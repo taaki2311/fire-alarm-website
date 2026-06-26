@@ -345,7 +345,6 @@ where
     {
         old_entry.handle.abort();
     }
-    println!("{email}: {code:0>6}"); // TODO: Remove
 
     let mut context = tera::Context::new();
     context.insert(stringify!(code), &format!("{code:0>6}"));

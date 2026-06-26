@@ -11,7 +11,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 RUN apt update && apt full-upgrade --yes && apt install curl --yes && \
     curl --show-error --silent https://dotenvx.sh/install.sh | sh && \
     apt remove curl --yes && apt autoremove --yes && apt clean
-COPY .env.test .
+COPY .env.prod .
 COPY email.html .
 COPY index.html .
 COPY index.js .
