@@ -4,17 +4,17 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-axum = "0.8.8"
-axum-extra = "0.12.5"
-clap = { version = "4.5.54", features = ["derive"] }
-humantime = "2.3.0"
-lettre = { version = "0.11.19", features = ["serde", "tokio1-native-tls"] }
-rand = "0.10.1"
-sea-orm = { version = "1.1.19", features = ["runtime-tokio-native-tls"] }
-serde = { version = "1.0.228", features = ["derive"] }
+axum = "0.8.9"
+axum-extra = "0.12.6"
+clap = { version = "4.6.7", features = ["derive"] }
+humantime = "2.4.0"
+lettre = { version = "0.11.23", features = ["serde", "tokio1-native-tls"] }
+rand = "0.10.3"
+sea-orm = { version = "1.1.20", features = ["runtime-tokio-native-tls"] }
+serde = { version = "1.0.229", features = ["derive"] }
 tera = "1.20.1"
-thiserror = "2.0.17"
-tokio = { version = "1.50.0", features = ["full"] }
+thiserror = "2.0.20"
+tokio = { version = "1.53.1", features = ["full"] }
 
 [features]
 default = ["sqlite", "env"]

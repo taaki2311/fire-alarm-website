@@ -20,5 +20,5 @@ jobs:
       - name: Test
         run: dotenvx run -- cargo test
         env:
-          DOTENV_PRIVATE_KEY_TEST: ${{ secrets.DOTENV_PRIVATE_KEY_CI }}
+          DOTENV_PRIVATE_KEY_CI: ${{ secrets.DOTENV_PRIVATE_KEY_CI }}
           RUST_BACKTRACE: 1

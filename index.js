@@ -26,7 +26,7 @@ function updateStationList(filter, stations, name, checked) { // eslint-disable-
  * @param {string} message - Message to give to the user
  */
 function displayResult(message) {
-    document.getElementById('result').innerText = message;
+    document.getElementById('result').textContent = message;
 }
 
 class ErrorMessage {
@@ -43,7 +43,7 @@ class ErrorMessage {
      * @returns {string} Inner error message to display
      */
     extract_message_and_log_details() {
-        console.error(this.inner_details);
+        console.warn(this.inner_details);
         return this.error_message;
     }
 }
