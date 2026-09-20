@@ -53,6 +53,29 @@ pub enum Error {
     TemplateError(#[from] tera::Error),
 }
 
+#[derive(Debug, Serialize)]
+struct ErrorMessage {
+    error_message: String,
+    inner_details: String
+}
+
+impl From<Error> for ErrorMessage {
+    fn from(value: Error) -> Self {
+        let (error_message, inner_details) = match value {
+            Error::IoError(inner) => ("I/O Error", inner.to_string()),
+            Error::DbError(inner) => ("Database Error", inner.to_string()),
+            Error::AddressError(inner) => ("Email Address Parsing Error", inner.to_string()),
+            Error::EmailError(inner) => ("Email Generation Error", inner.to_string()),
+            Error::SendError(inner) => ("Email Sending Error", inner.to_string()),
+            Error::EmailNotFound(inner) => ("Email not found", inner.to_string()),
+            Error::CodeDoesNotMatch(inner) => ("Code does not match", inner.to_string()),
+            Error::ServerShutdown => ("Server is shutting down", "Server Shutdown".to_string()),
+            Error::TemplateError(inner) => ("Templating Error", inner.to_string()),
+        };
+        ErrorMessage { error_message: error_message.to_string(), inner_details }
+    }
+}
+
 impl IntoResponse for Error {
     /// Allows for [`Result`] to work with Axum
     fn into_response(self) -> Response {
@@ -69,9 +92,9 @@ impl IntoResponse for Error {
             Error::ServerShutdown => StatusCode::SERVICE_UNAVAILABLE,
             Error::TemplateError(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
-        let message = format!("{self:?}");
-        eprintln!("{message}");
-        (status_code, message).into_response()
+        let error_message: ErrorMessage = self.into();
+        eprintln!("{error_message:?}");
+        (status_code, Json(error_message)).into_response()
     }
 }
 
@@ -273,7 +296,7 @@ async fn parse_index(db: &impl ConnectionTrait) -> Result<String> {
     }
 
     Tera::one_off(
-        &fs::read_to_string(env::var("INDEX_HTML").unwrap_or_else(|_| "index.html".to_string()))
+        &fs::read_to_string(env::var("INDEX_HTML").unwrap_or_else(|_| "index.html.jinja".to_string()))
             .await?,
         &tera::Context::from_serialize(IndexContext {
             lines: RailLines::find()
@@ -343,7 +366,7 @@ where
         .otp_db
         .insert(address.clone(), state.clone(), code)?
     {
-        old_entry.handle.abort();
+        old_entry.handle.abort(); // Or instead block if there is already an entry?
     }
 
     let mut context = tera::Context::new();

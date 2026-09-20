@@ -90,11 +90,8 @@ Returns stylesheet for the web interface.
 
 Subscribe to notifications. Request body:
 
-```json
-{
-  "email": "user@example.com",
-  "stations": ["Metro Center", "L'Enfant Plaza"]
-}
+```
+user@example.com
 ```
 
 The server generates a one-time passcode (OTP), sends it via email, and stores a temporary entry in the database. The OTP expires after the configured timeout (default: 5 minutes).
@@ -105,8 +102,8 @@ Confirm subscription with verification code. Request body:
 
 ```json
 {
-  "email": "user@example.com",
-  "code": 1234
+  "user_auth": { "email": "user@example.com", "code": 1234 },
+  "stations": ["Metro Center", "L'Enfant Plaza"]
 }
 ```
 
@@ -118,7 +115,7 @@ Unsubscribe from notifications. Request body:
 
 ```json
 {
-  "email": "user@example.com"
+  "user_auth": { "email": "user@example.com", "code": 1234 }
 }
 ```
 

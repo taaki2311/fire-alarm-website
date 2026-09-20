@@ -1,11 +1,4 @@
 /**
- * @param {string} message - Message to give to the user
- */
-function displayResult(message) {
-    document.getElementById('result').innerText = message;
-}
-
-/**
  * @param {Map<string, boolean>} filter - Filter to be updated
  * @param {StationInfo[]} stations - Stations to be filtered
  * @param {string} name - Name of the line toggled
@@ -29,6 +22,49 @@ function updateStationList(filter, stations, name, checked) { // eslint-disable-
     }
 }
 
+/**
+ * @param {string} message - Message to give to the user
+ */
+function displayResult(message) {
+    document.getElementById('result').innerText = message;
+}
+
+class ErrorMessage {
+    /**
+     * @param {string} error_message - Top-level general error message
+     * @param {string} inner_details - Low-level implemetation details 
+     */
+    constructor(error_message, inner_details) {
+        this.error_message = error_message;
+        this.inner_details = inner_details;
+    }
+
+    /**
+     * @returns {string} Inner error message to display
+     */
+    extract_message_and_log_details() {
+        console.error(this.inner_details);
+        return this.error_message;
+    }
+}
+
+/**
+ * @param {unknown} value - Object to be converted to an ErrorMessage
+ * @returns {ErrorMessage} Converted ErrorMessage
+ * @throws {TypeError} If value cannot be converted to an ErrorMessage
+ */
+function parseErrorMessage(value) {
+    if (
+        typeof value !== 'object' ||
+        value === null ||
+        typeof value.error_message !== 'string' ||
+        typeof value.inner_details !== 'string'
+    ) {
+        throw new TypeError('Invalid ErrorMessage response');
+    }
+    return new ErrorMessage(value.error_message, value.inner_details);
+}
+
 document.getElementById('emailForm').addEventListener('submit', async (event) => {
     event.preventDefault();
     const email = new FormData(event.target).get('email');
@@ -43,7 +79,9 @@ document.getElementById('emailForm').addEventListener('submit', async (event) =>
             document.getElementById('subscriptionForm').style.display = 'block';
             displayResult('Email Successfully received');
         } else {
-            displayResult(`Error receiving email: ${await response.text()}`);
+            const error_message = parseErrorMessage(await response.json());
+            const message = error_message.extract_message_and_log_details();
+            displayResult(`Error receiving email: ${message}`);
         }
     } catch (error) {
         displayResult(`Error submitting email: ${error}`);
@@ -100,7 +138,9 @@ document.getElementById('subscriptionForm').addEventListener('submit', async (ev
         if (response.ok) {
             displayResult('Verification code authenticated successfully');
         } else {
-            displayResult(`Error verifying code: ${await response.text()}`);
+            const error_message = parseErrorMessage(await response.json());
+            const message = error_message.extract_message_and_log_details();
+            displayResult(`Error verifying code: ${message}`);
         }
     } catch (error) {
         displayResult(`Error sending code: ${error}`);
