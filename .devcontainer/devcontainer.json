@@ -14,11 +14,15 @@
         }
     ],
     "features": {
-        "ghcr.io/devcontainer-community/devcontainer-features/dotenv.org:1.0": {}
+        "ghcr.io/devcontainer-community/devcontainer-features/dotenv.org:1": {},
+        "ghcr.io/warrenbuckley/codespace-features/sqlite:1": {}
     },
     "forwardPorts": [
         80
     ],
+    "containerEnv": {
+        "DATABASE": "sqlite://test.sqlite"
+    },
     "customizations": {
         "vscode": {
             "extensions": [
