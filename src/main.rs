@@ -92,7 +92,7 @@ struct Args {
     pub timeout: humantime::Duration,
 
     /// URL for Server
-    #[arg(short, long, default_value_t = net::SocketAddr::V4(net::SocketAddrV4::new(net::Ipv4Addr::new(127, 0, 0, 1), 8080)))]
+    #[arg(short, long, default_value_t = net::SocketAddr::V4(net::SocketAddrV4::new(net::Ipv4Addr::new(127, 0, 0, 1), 80)))]
     #[cfg_attr(feature = "env", arg(env))]
     pub url: net::SocketAddr,
 }

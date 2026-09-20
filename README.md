@@ -26,18 +26,16 @@ cargo build --release
 ```
 
 ## Configuration
-
 Configure via command-line arguments or environment variables (with the `env` feature enabled):
-
-| Argument | Env Var | Default | Description |
-| -------- | ------- | ------- | ----------- |
-| `-a, --address` | `ADDRESS` | `no-reply@fire-alarm.org` | Email address to send from |
-| `-n, --name` | `NAME` | Address value | SMTP relay username (optional) |
-| `-p, --password` | `PASSWORD` | (required) | SMTP relay password |
-| `-r, --relay` | `RELAY` | (required) | SMTP relay server URL (e.g., `smtp.gmail.com:587`) |
-| `-d, --database` | `DATABASE` | (required) | Database connection URL |
-| `-t, --timeout` | `TIMEOUT` | `5m` | Email verification code timeout |
-| `-u, --url` | `URL` | `127.0.0.1:8080` | Server listen address and port |
+| Argument         | Env Var    | Default                   | Description                                        |
+| ---------------- | ---------- | ------------------------- | -------------------------------------------------- |
+| `-a, --address`  | `ADDRESS`  | `no-reply@fire-alarm.org` | Email address to send from                         |
+| `-n, --name`     | `NAME`     | Address value             | SMTP relay username (optional)                     |
+| `-p, --password` | `PASSWORD` | (required)                | SMTP relay password                                |
+| `-r, --relay`    | `RELAY`    | (required)                | SMTP relay server URL (e.g., `smtp.gmail.com:587`) |
+| `-d, --database` | `DATABASE` | (required)                | Database connection URL                            |
+| `-t, --timeout`  | `TIMEOUT`  | `5m`                      | Email verification code timeout                    |
+| `-u, --url`      | `URL`      | `127.0.0.1:8080`          | Server listen address and port                     |
 
 ### Example `.env` file
 
@@ -68,7 +66,7 @@ Or with environment variables:
 cargo run --release --features env
 ```
 
-The server will listen on the configured URL (default: `http://127.0.0.1:8080`).
+The server will listen on the configured URL (default: `http://127.0.0.1:80`).
 
 ## API
 
