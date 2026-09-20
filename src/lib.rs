@@ -217,7 +217,7 @@ impl<T: AsyncTransport, C: ConnectionTrait> AppState<T, C> {
         duration: time::Duration,
     ) -> Result<Self> {
         let email_template_name =
-            env::var("EMAIL_TEMPLATE").unwrap_or_else(|_| "email.html".to_string());
+            env::var("EMAIL_TEMPLATE").unwrap_or_else(|_| "email.html.jinja".to_string());
         let mut template = Tera::default();
         template.add_template_file(&email_template_name, None)?;
         Ok(Self {

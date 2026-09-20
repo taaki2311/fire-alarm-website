@@ -24,8 +24,14 @@
             "extensions": [
                 "dbaeumer.vscode-eslint",
                 "ms-azuretools.vscode-containers",
-                "yzhang.markdown-all-in-one"
-            ]
+                "yzhang.markdown-all-in-one",
+                "samuelcolvin.jinjahtml"
+            ],
+            "settings": {
+                "files.associations": {
+                    "*.html.jinja": "jinja-html"
+                }
+            }
         }
     }
 }

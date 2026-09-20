@@ -12,8 +12,8 @@ RUN apt update && apt full-upgrade --yes && apt install curl --yes && \
     curl --show-error --silent https://dotenvx.sh/install.sh | sh && \
     apt remove curl --yes && apt autoremove --yes && apt clean
 COPY .env.prod .
-COPY email.html .
-COPY index.html .
+COPY email.html.jinja .
+COPY index.html.jinja .
 COPY index.js .
 COPY style.css .
 COPY --from=builder /home/fire-alarm-website/target/release/fire-alarm-website /usr/local/bin/
