@@ -1,6 +1,6 @@
 {
     "name": "Fire-Alarm Website",
-    "image": "mcr.microsoft.com/devcontainers/rust:2.1-1-trixie",
+    "image": "mcr.microsoft.com/devcontainers/rust:2-1-trixie",
     "mounts": [
         { // Used to cache Rust build artifacts
             "source": "devcontainer-cargo-cache-${devcontainerId}",
@@ -23,6 +23,7 @@
     "containerEnv": {
         "DATABASE": "sqlite://test.sqlite"
     },
+    "onCreateCommand": "./setup.sh",
     "customizations": {
         "vscode": {
             "extensions": [

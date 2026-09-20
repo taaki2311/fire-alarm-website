@@ -1,4 +1,4 @@
-FROM rust:1.96-trixie AS builder
+FROM rust:1.98-trixie AS builder
 WORKDIR /home/fire-alarm-website
 COPY src/ src/
 COPY Cargo.lock .
