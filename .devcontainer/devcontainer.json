@@ -29,7 +29,8 @@
                 "dbaeumer.vscode-eslint",
                 "ms-azuretools.vscode-containers",
                 "yzhang.markdown-all-in-one",
-                "samuelcolvin.jinjahtml"
+                "samuelcolvin.jinjahtml",
+                "redhat.vscode-yaml"
             ],
             "settings": {
                 "files.associations": {
