@@ -1,0 +1,31 @@
+{
+    "name": "Fire-Alarm Website",
+    "image": "mcr.microsoft.com/devcontainers/rust:2.1-1-trixie",
+    "mounts": [
+        { // Used to cache Rust build artifacts
+            "source": "devcontainer-cargo-cache-${devcontainerId}",
+            "target": "/usr/local/cargo",
+            "type": "volume"
+        },
+        { // Modify if your local instance is not a submodule of fire-alarm
+            "source": "${localWorkspaceFolder}/../.git/modules/website",
+            "target": "/workspaces/.git/modules/website",
+            "type": "bind"
+        }
+    ],
+    "features": {
+        "ghcr.io/devcontainer-community/devcontainer-features/dotenv.org:1.0": {}
+    },
+    "forwardPorts": [
+        80
+    ],
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "dbaeumer.vscode-eslint",
+                "ms-azuretools.vscode-containers",
+                "yzhang.markdown-all-in-one"
+            ]
+        }
+    }
+}
