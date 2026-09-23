@@ -36,6 +36,8 @@ async fn main() {
         .route("/index.html", routing::get(fire_alarm_website::index))
         .route("/index.js", routing::get(fire_alarm_website::script))
         .route("/style.css", routing::get(fire_alarm_website::style))
+        .route("/status", routing::get(fire_alarm_website::status))
+        .with_state(state.clone())
         .route(
             "/submit_email",
             routing::post(fire_alarm_website::submit_email),

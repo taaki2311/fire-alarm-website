@@ -3,16 +3,18 @@ use std::{collections::HashMap, env, result, sync::Arc};
 use axum::{
     Json,
     extract::State,
+    http::StatusCode,
     response::{Html, IntoResponse, Response},
 };
 use axum_extra::response::{Css, JavaScript};
-use lettre::{Address, AsyncTransport, message};
+use lettre::{Address, AsyncSmtpTransport, AsyncTransport, Executor, message};
 use sea_orm::{
-    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DbErr, EntityTrait, ModelTrait,
-    QueryFilter,
+    ActiveModelTrait, ActiveValue, ColumnTrait, ConnectionTrait, DatabaseConnection, DbErr,
+    EntityTrait, ModelTrait, QueryFilter,
 };
 use serde::{Deserialize, Serialize};
 use tera::Tera;
+use thiserror::Error;
 use tokio::{
     fs,
     sync::{Mutex, OnceCell, oneshot},
@@ -23,7 +25,7 @@ mod database;
 use crate::database::{prelude::*, rail_lines, stations, user_stations, users};
 
 /// All possible errors that the website could encounter
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Error)]
 pub enum Error {
     #[error("IO error: {0}")]
     IoError(#[from] tokio::io::Error),
@@ -53,10 +55,13 @@ pub enum Error {
     TemplateError(#[from] tera::Error),
 }
 
+/// JSON-serializable format to send error messages to the client
+/// [`ErrorMessage::error_message`]: Message to be displayed on the webpage for a regular user
+/// [`ErrorMessage::inner_details`]: Rust-specific error stack to be logged but not shown directly
 #[derive(Debug, Serialize)]
 struct ErrorMessage {
     error_message: String,
-    inner_details: String
+    inner_details: String,
 }
 
 impl From<Error> for ErrorMessage {
@@ -72,15 +77,16 @@ impl From<Error> for ErrorMessage {
             Error::ServerShutdown => ("Server is shutting down", "Server Shutdown".to_string()),
             Error::TemplateError(inner) => ("Templating Error", inner.to_string()),
         };
-        ErrorMessage { error_message: error_message.to_string(), inner_details }
+        ErrorMessage {
+            error_message: error_message.to_string(),
+            inner_details,
+        }
     }
 }
 
 impl IntoResponse for Error {
     /// Allows for [`Result`] to work with Axum
     fn into_response(self) -> Response {
-        use axum::http::StatusCode;
-
         let status_code = match self {
             Error::IoError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Error::DbError(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -233,12 +239,84 @@ impl<T: AsyncTransport, C: ConnectionTrait> AppState<T, C> {
         })
     }
 
-    /// Passes a shutdown to it private internal [`OtpDb`]
+    /// Passes a shutdown to its private internal [`OtpDb`]
     pub fn shutdown(&mut self) -> Option<oneshot::Receiver<()>> {
         self.otp_db.shutdown()
     }
 }
 
+/// Adds possible [`SmtpError::NotConnected`] error to SMTP relay server pinging
+#[derive(Debug, Error)]
+enum SmtpError {
+    #[error("SMTP server not connected")]
+    NotConnected,
+
+    #[error("SMTP Error: {0}")]
+    Other(#[from] lettre::transport::smtp::Error),
+}
+
+/// Stores the statuses of test pings to the SMTP relay server and SQL database
+pub struct Status {
+    smtp_status: Option<SmtpError>,
+    db_status: Option<DbErr>,
+}
+
+impl<E> AppState<AsyncSmtpTransport<E>, DatabaseConnection>
+where
+    E: Executor,
+    AsyncSmtpTransport<E>: AsyncTransport,
+{
+    /// Pings both the SMTP relay server and SQL database to check the connection
+    async fn status(&self) -> Status {
+        let transport_test = self.transport.test_connection();
+        let db_test = self.db.ping();
+
+        let transport_status = match transport_test.await {
+            Ok(true) => None,
+            Ok(false) => Some(SmtpError::NotConnected),
+            Err(err) => Some(err.into()),
+        };
+
+        let db_status = match db_test.await {
+            Ok(_) => None,
+            Err(err) => Some(err),
+        };
+
+        Status {
+            smtp_status: transport_status,
+            db_status,
+        }
+    }
+}
+
+/// JSON-serializable format for [`Status`]
+#[derive(Serialize)]
+struct StatusResponse {
+    smtp_status: Option<String>,
+    database_status: Option<String>,
+}
+
+impl From<Status> for StatusResponse {
+    fn from(value: Status) -> Self {
+        StatusResponse {
+            smtp_status: value.smtp_status.map(|err| err.to_string()),
+            database_status: value.db_status.map(|err| err.to_string()),
+        }
+    }
+}
+
+impl IntoResponse for Status {
+    fn into_response(self) -> Response {
+        let (code, response): (_, Option<StatusResponse>) =
+            match (&self.smtp_status, &self.db_status) {
+                (None, None) => (StatusCode::OK, None),
+                (_, _) => (StatusCode::INTERNAL_SERVER_ERROR, Some(self.into())),
+            };
+        (code, Json(response)).into_response()
+    }
+}
+
+/// Giving [`rail_lines::Model`] the [`u8`] color types that it should have
 #[derive(Serialize)]
 struct LineInfo {
     name: String,
@@ -247,6 +325,7 @@ struct LineInfo {
     blue: u8,
 }
 
+/// Color values for [`rail_lines::Model`] should be [`u8`] but SeaORM makes them [`u16`]
 fn clamp_conversion(value: i16) -> u8 {
     value.clamp(u8::MIN.into(), u8::MAX.into()) as u8
 }
@@ -296,8 +375,10 @@ async fn parse_index(db: &impl ConnectionTrait) -> Result<String> {
     }
 
     Tera::one_off(
-        &fs::read_to_string(env::var("INDEX_HTML").unwrap_or_else(|_| "index.html.jinja".to_string()))
-            .await?,
+        &fs::read_to_string(
+            env::var("INDEX_HTML").unwrap_or_else(|_| "index.html.jinja".to_string()),
+        )
+        .await?,
         &tera::Context::from_serialize(IndexContext {
             lines: RailLines::find()
                 .all(db)
@@ -349,6 +430,16 @@ pub async fn style() -> Result<Css<String>> {
         .cloned()?))
 }
 
+/// Endpoint for getting the statuses of services needed by the server, used for health-checks
+pub async fn status<E: Executor>(
+    State(state): State<Arc<Mutex<AppState<AsyncSmtpTransport<E>, DatabaseConnection>>>>,
+) -> Status
+where
+    AsyncSmtpTransport<E>: AsyncTransport,
+{
+    state.lock().await.status().await
+}
+
 /// Starting point for modifying a subscription, will send a verification code to the given email
 pub async fn submit_email<T, C: ConnectionTrait + Send + 'static>(
     State(state): State<Arc<Mutex<AppState<T, C>>>>,
@@ -366,7 +457,7 @@ where
         .otp_db
         .insert(address.clone(), state.clone(), code)?
     {
-        old_entry.handle.abort(); // Or instead block if there is already an entry?
+        old_entry.handle.abort();
     }
 
     let mut context = tera::Context::new();
